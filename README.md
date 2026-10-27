@@ -3,6 +3,18 @@
 Weekly prepared-meal order forecasting, followed by explicitly simulated inventory decisions.
 The source data do not validate grocery replenishment, observed food waste or actual carbon savings.
 
+## Interactive fixture demo (Lan)
+
+```sh
+python -m pip install -e '.[demo]'
+python -m streamlit run app.py --server.address 127.0.0.1
+```
+
+Activate your project environment first. This one-screen prototype uses synthetic
+meals and a forecast-matching baseline; it needs no source CSVs or API keys.
+It is not connected to the team's forecast or optimized policy and is not an AI
+agent. See [the demo guide](docs/demo.md) for setup, checks and integration steps.
+
 ## Start in VS Code
 
 Open `freshwise.code-workspace`. Install the recommended Python and Jupyter extensions.
