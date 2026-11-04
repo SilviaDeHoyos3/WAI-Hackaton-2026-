@@ -1,4 +1,6 @@
 import unittest
+import numpy as np
+
 
 from freshwise.decision import (
     recommend_preparation,
@@ -344,3 +346,265 @@ class DecisionTests(unittest.TestCase):
             compare_preparation_plans(
                 20, [70, 100, 130], 2, 5, 1, 140, 1.5
             )
+
+    def test_optimizer_finds_minimum_loss(self):
+        result = optimize_preparation(
+            inventory=20,
+            demand_scenarios=[70, 100, 130],
+            overage_cost=2,
+            underage_cost=5,
+        )
+
+        self.assertEqual(result["prepare_qty"], 110)
+        self.assertAlmostEqual(result["average_loss"], 60.0)
+
+    def test_optimizer_with_silvia_scenarios(self):
+        result = optimize_preparation(
+            inventory=40,
+            demand_scenarios=[352, 440, 528],
+            overage_cost=2,
+            underage_cost=5,
+        )
+
+        self.assertEqual(result["prepare_qty"], 488)
+        self.assertAlmostEqual(result["average_loss"], 176.0)
+
+    def test_optimizer_zero_inventory(self):
+        result = optimize_preparation(
+            inventory=0,
+            demand_scenarios=[70, 100, 130],
+            overage_cost=2,
+            underage_cost=5,
+        )
+
+        self.assertEqual(result["prepare_qty"], 130)
+        self.assertAlmostEqual(result["average_loss"], 60.0)
+
+    def test_optimizer_enough_inventory(self):
+        result = optimize_preparation(
+            inventory=150,
+            demand_scenarios=[70, 100, 130],
+            overage_cost=2,
+            underage_cost=5,
+        )
+
+        self.assertEqual(result["prepare_qty"], 0)
+        self.assertAlmostEqual(result["average_loss"], 100.0)
+
+
+    def test_custom_adjustment_reports_clipping(self):
+        result = adjust_demand_scenarios(
+        [70, 100, 130], 1, 20, 1
+    )
+
+        self.assertTrue(result["clipped"])
+        self.assertEqual(
+            result["original_scenarios"],
+            [70, 100, 130],
+        )
+        self.assertEqual(result["anchor"], 100)
+        self.assertEqual(result["manager_estimate"], 20)
+        self.assertEqual(result["opinion_weight"], 1)
+
+
+    def test_preparation_rejects_invalid_numeric_inputs(self):
+        invalid_values = [
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+            "100",
+            None,
+            True,
+        ]
+
+        for value in invalid_values:
+            with self.subTest(field="forecast", value=value):
+                with self.assertRaises(ValueError):
+                    recommend_preparation(value, 20)
+
+            with self.subTest(field="inventory", value=value):
+                with self.assertRaises(ValueError):
+                    recommend_preparation(100, value)
+
+    def test_evaluation_rejects_invalid_numeric_inputs(self):
+        invalid_values = [
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+            "100",
+            None,
+            True,
+        ]
+
+        for value in invalid_values:
+            for position in range(3):
+                quantities = [80, 20, 70]
+                quantities[position] = value
+
+                with self.subTest(
+                    position=position,
+                    value=value,
+                ):
+                    with self.assertRaises(ValueError):
+                        evaluate_preparation(*quantities)
+
+    def test_loss_rejects_invalid_numeric_inputs(self):
+        invalid_values = [
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+            "2",
+            None,
+            True,
+        ]
+
+        for value in invalid_values:
+            for position in range(4):
+                inputs = [30, 0, 2, 5]
+                inputs[position] = value
+
+                with self.subTest(
+                    position=position,
+                    value=value,
+                ):
+                    with self.assertRaises(ValueError):
+                        calculate_loss(*inputs)
+
+
+    def test_optimizer_rejects_invalid_numeric_inputs(self):
+        invalid_values = [
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+            "100",
+            None,
+            True,
+        ]
+
+        for value in invalid_values:
+            for position in range(4):
+                inputs = [20, [70, 100, 130], 2, 5]
+
+                if position == 1:
+                    inputs[position] = [70, value, 130]
+                else:
+                    inputs[position] = value
+
+                with self.subTest(
+                    position=position,
+                    value=value,
+                ):
+                    with self.assertRaises(ValueError):
+                        optimize_preparation(*inputs)
+
+    def test_custom_rejects_invalid_numeric_inputs(self):
+        invalid_values = [
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+            "100",
+            None,
+            True,
+        ]
+
+        for value in invalid_values:
+            for position in [0, 2, 3]:
+                inputs = [[70, 100, 130], 1, 140, 0.25]
+
+                if position == 0:
+                    inputs[position] = [70, value, 130]
+                else:
+                    inputs[position] = value
+
+                with self.subTest(
+                    position=position,
+                    value=value,
+                ):
+                    with self.assertRaises(ValueError):
+                        adjust_demand_scenarios(*inputs)
+
+    def test_custom_rejects_noninteger_anchor(self):
+        invalid_indices = [
+            1.5,
+            1.0,
+            "1",
+            None,
+            True,
+            float("nan"),
+        ]
+
+        for index in invalid_indices:
+            with self.subTest(index=index):
+                with self.assertRaises(ValueError):
+                    adjust_demand_scenarios(
+                        [70, 100, 130], index, 140, 0.25
+                    )
+
+    def test_compare_plans_accepts_numpy_numbers(self):
+        result = compare_preparation_plans(
+            inventory=np.int64(20),
+            demand_scenarios=[
+                np.float64(70),
+                np.float64(100),
+                np.float64(130),
+            ],
+            overage_cost=np.float64(2),
+            underage_cost=np.float64(5),
+            anchor_index=np.int64(1),
+            manager_estimate=np.float64(140),
+            opinion_weight=np.float64(0.25),
+        )
+
+        self.assertEqual(
+            result["original_plan"]["prepare_qty"], 110
+        )
+        self.assertEqual(
+            result["custom_plan"]["prepare_qty"], 120
+        )
+        self.assertAlmostEqual(
+            result["loss_comparison"]["custom_plan"]["on_original"],
+            80,
+        )
+
+    def test_preparation_rejects_fractional_inventory(self):
+        with self.assertRaises(ValueError):
+            recommend_preparation(100, 20.5)
+
+    def test_preparation_accepts_whole_float_inventory(self):
+        self.assertEqual(
+            recommend_preparation(100, 20.0), 80
+        )
+
+    def test_compare_plans_rejects_wrong_scenario_count(self):
+        for scenarios in [
+            [],
+            [70, 100],
+            [70, 100, 130, 160],
+        ]:
+            with self.subTest(scenarios=scenarios):
+                with self.assertRaises(ValueError):
+                    compare_preparation_plans(
+                        20, scenarios, 2, 5, 0, 140, 0.25
+                    )
+
+    def test_compare_plans_rejects_unordered_scenarios(self):
+        with self.assertRaises(ValueError):
+            compare_preparation_plans(
+                20, [100, 70, 130], 2, 5, 1, 140, 0.25
+            )
+
+    def test_compare_plans_accepts_equal_scenarios(self):
+        result = compare_preparation_plans(
+            20, [100, 100, 100], 2, 5, 1, 100, 0.25
+        )
+
+        self.assertEqual(
+            result["original_plan"]["prepare_qty"], 80
+        )
+        self.assertAlmostEqual(
+            result["original_plan"]["average_loss"], 0
+        )
+        self.assertEqual(
+            result["original_plan"],
+            result["custom_plan"],
+        )

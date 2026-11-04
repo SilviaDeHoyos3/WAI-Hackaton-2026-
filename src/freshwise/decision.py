@@ -1,18 +1,26 @@
 import math
+from numbers import Real, Integral
 
+def _validate_nonnegative_number(value, name):
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{name} must be a number.")
+
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite.")
+
+    if value < 0:
+        raise ValueError(f"{name} cannot be negative.")
 
 def recommend_preparation(forecast, inventory):
-    if inventory < 0:
-        raise ValueError("Inventory cannot be negative.")
-
-    if forecast < 0:
-        raise ValueError("Forecast cannot be negative.")
+    _validate_nonnegative_number(forecast, "Forecast")
+    _validate_inventory(inventory)
 
     return max(0, math.ceil(forecast - inventory))
 
 def evaluate_preparation(prepared, inventory, actual_orders):
-    if prepared < 0 or inventory < 0 or actual_orders < 0:
-        raise ValueError("Quantities cannot be negative.")
+    _validate_nonnegative_number(prepared, "Prepared quantity")
+    _validate_inventory(inventory)
+    _validate_nonnegative_number(actual_orders, "Actual orders")
 
     supply = inventory + prepared
 
@@ -22,11 +30,12 @@ def evaluate_preparation(prepared, inventory, actual_orders):
     return {"excess": excess, "unmet": unmet}
 
 def calculate_loss(excess, unmet, overage_cost, underage_cost):
-    if min(excess, unmet, overage_cost, underage_cost) < 0:
-        raise ValueError("Quantities and costs cannot be negative.")
+    _validate_nonnegative_number(excess, "Excess")
+    _validate_nonnegative_number(unmet, "Unmet orders")
+    _validate_nonnegative_number(overage_cost, "Overage cost")
+    _validate_nonnegative_number(underage_cost, "Underage cost")
 
     return excess * overage_cost + unmet * underage_cost
-
 
 def average_scenario_loss(
     prepared,
@@ -63,14 +72,12 @@ def optimize_preparation(
     if not demand_scenarios:
         raise ValueError("Provide at least one demand scenario.")
 
-    if inventory < 0:
-        raise ValueError("Inventory cannot be negative.")
+    _validate_inventory(inventory)
+    _validate_nonnegative_number(overage_cost, "Overage cost")
+    _validate_nonnegative_number(underage_cost, "Underage cost")
 
-    if overage_cost < 0 or underage_cost < 0:
-        raise ValueError("Costs cannot be negative.")
-
-    if any(demand < 0 for demand in demand_scenarios):
-        raise ValueError("Demand scenarios cannot be negative.")
+    for demand in demand_scenarios:
+        _validate_nonnegative_number(demand, "Demand scenario")
 
     max_preparation = max(
         0,
@@ -98,6 +105,7 @@ def optimize_preparation(
         "average_loss": best_loss,
     }
 
+
 def adjust_demand_scenarios(
     demand_scenarios,
     anchor_index,
@@ -107,18 +115,23 @@ def adjust_demand_scenarios(
     if not demand_scenarios:
         raise ValueError("Provide at least one demand scenario.")
 
-    if any(demand < 0 for demand in demand_scenarios):
-        raise ValueError("Demand scenarios cannot be negative.")
+    for demand in demand_scenarios:
+        _validate_nonnegative_number(demand, "Demand scenario")
 
+    if isinstance(anchor_index, bool) or not isinstance(
+        anchor_index, Integral
+    ):
+        raise ValueError("Anchor index must be an integer.")
+    
     if not 0 <= anchor_index < len(demand_scenarios):
         raise ValueError("Anchor index is out of range.")
 
-    if manager_estimate < 0:
-        raise ValueError("Manager estimate cannot be negative.")
+    _validate_nonnegative_number(manager_estimate, "Manager estimate")
+    _validate_nonnegative_number(opinion_weight, "Opinion weight")
 
-    if not 0 <= opinion_weight <= 1:
+    if opinion_weight > 1:
         raise ValueError("Opinion weight must be between 0 and 1.")
-
+    
     anchor = demand_scenarios[anchor_index]
 
     custom_anchor = (
@@ -134,9 +147,17 @@ def adjust_demand_scenarios(
     ]
 
     return {
+        "original_scenarios": list(demand_scenarios),
+        "anchor": anchor,
+        "manager_estimate": manager_estimate,
+        "opinion_weight": opinion_weight,
         "custom_anchor": custom_anchor,
         "adjustment": adjustment,
         "updated_scenarios": updated_scenarios,
+        "clipped": any(
+            demand + adjustment < 0
+            for demand in demand_scenarios
+        ),
     }
 
 def compare_preparation_plans(
@@ -149,6 +170,19 @@ def compare_preparation_plans(
     opinion_weight,
 ):
     original_scenarios = list(demand_scenarios)
+
+    if len(original_scenarios) != 3:
+        raise ValueError("Provide exactly three demand scenarios.")
+
+    for demand in original_scenarios:
+        _validate_nonnegative_number(demand, "Demand scenario")
+
+    low, central, high = original_scenarios
+
+    if not low <= central <= high:
+        raise ValueError(
+            "Demand scenarios must satisfy low <= central <= high."
+        )
 
     custom = adjust_demand_scenarios(
         original_scenarios,
@@ -213,3 +247,9 @@ def compare_preparation_plans(
             },
         },
     }
+
+def _validate_inventory(inventory):
+    _validate_nonnegative_number(inventory, "Inventory")
+
+    if inventory % 1 != 0:
+        raise ValueError("Inventory must contain whole portions.")

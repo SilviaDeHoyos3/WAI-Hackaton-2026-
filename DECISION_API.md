@@ -58,7 +58,15 @@ These are simulated penalties, not measured financial savings.
 - Keep the manager's reason alongside the calculation;
   the function does not currently receive or store that reason.
 - Catch ValueError and show a clear input error.
-- Do not describe current validation as comprehensive:
-  non-finite values and some invalid types still need handling.
+- Numeric validation rejects negative values, NaN, infinity,
+  text, missing values and booleans in the validated fields.
+- anchor_index must be an integer; decimal values and booleans
+  are rejected. NumPy numeric types are supported.
+- Inventory must represent whole portions: 20 and 20.0 are
+  accepted; 20.5 is rejected.
+- compare_preparation_plans requires exactly three scenarios
+  ordered as low <= central <= high. Equal values are accepted.
+- The lower-level optimization functions remain general and
+  can evaluate a different number of scenarios.
 - No forecasting model is called here: scenarios are supplied as inputs.
 - The function does not place orders or save results permanently.
