@@ -130,3 +130,47 @@ service, or real-world deployment benefits.
 Next investigation: forecast quality and the relevance of
 pooled historical errors, coordinated with Silvia.
 Do not choose a finer quantile solely to fit these 40 cases.
+
+## Selected development candidate — frozen specification
+
+Candidate: blend forecast with empirical 55th-percentile
+preparation target.
+
+- Forecast: 50% last + 50% trailing4.
+- Calibration: actual/blend ratios from weeks 116–125.
+- Forecast-size tier boundaries: 69 and 230.
+- Common quantile for all four meals: 0.55.
+- Preparation: max(0, ceil(target supply - usable inventory)).
+- Simulated inventory: 40 portions per meal.
+
+Selection used weeks 126–135 after earlier experiments.
+Among quantiles 0.01–0.99, the rule selected minimum excess
+subject to unmet orders not exceeding the last baseline.
+
+| Policy | Excess | Unmet | Penalty |
+|---|---:|---:|---:|
+| Last baseline | 1992 | 2023 | 14099 |
+| Selected blend q0.55 | 1950 | 1971 | 13755 |
+
+This is a service-constrained development selection,
+not the penalty-minimizing newsvendor policy.
+
+The small improvement is not independent validation,
+statistical significance or measured real-world waste reduction.
+No more quantile tuning is planned before final evaluation.
+
+## Frozen candidate: subgroup diagnostics
+
+The aggregate improvement is not uniform.
+
+- Meal 2306 improves both excess and unmet orders.
+- Meal 2444 worsens both.
+- Meals 1198 and 2664 show trade-offs between the two metrics.
+- Total penalty is lower in five of ten weeks.
+
+The service constraint was applied to aggregate development
+results, not separately to each meal or week. It does not
+guarantee future service performance.
+
+Keep all four meals and the common quantile 0.55.
+Do not select meal-specific policies from these observed results.

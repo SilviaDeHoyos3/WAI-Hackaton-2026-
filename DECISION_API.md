@@ -70,3 +70,56 @@ These are simulated penalties, not measured financial savings.
   can evaluate a different number of scenarios.
 - No forecasting model is called here: scenarios are supplied as inputs.
 - The function does not place orders or save results permanently.
+
+
+## Experimental empirical preparation policy
+
+This is a separate candidate policy, not a replacement for
+compare_preparation_plans.
+
+```python
+from freshwise.empirical import recommend_empirical_preparation
+
+result = recommend_empirical_preparation(
+    forecast=200,
+    inventory=40,
+    error_ratios=[0.5, 0.8, 1.0, 1.1, 1.6],
+    quantile=0.55,
+)
+```
+
+### Inputs
+
+- forecast: non-negative, finite order forecast.
+- inventory: usable stock in whole portions.
+- error_ratios: non-empty sample of historical actual/forecast ratios.
+- quantile: explicit value between 0 and 1.
+
+Ratios must correspond to the forecasting method being used
+and must use outcomes available before the target week.
+The caller selects the appropriate calibration sample/tier.
+
+### Outputs
+
+- prepare_qty: new whole portions to prepare.
+- target_supply: empirical quantile of forecast × error ratios.
+- quantile: the input quantile.
+- scenario_count: number of historical ratios used.
+
+Preparation is max(0, ceil(target_supply - inventory)).
+
+### Interpretation and limits
+
+This function applies a chosen quantile. It does not select
+the best quantile or minimize the overage/underage penalty.
+
+The development candidate uses a 50/50 last/trailing4 blend,
+calibration weeks 116–125, size boundaries 69 and 230,
+and quantile 0.55. These settings are not enforced here.
+
+The function does not load forecasts, verify calibration
+dates, record manager reasons or apply contextual adjustments.
+
+Development improvements are small and selected after
+multiple experiments. Final evaluation is still pending.
+No real-world waste reduction has been established.
