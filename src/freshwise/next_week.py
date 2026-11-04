@@ -21,13 +21,26 @@ METHOD = "last"
 SCENARIO_LOW = 0.8
 SCENARIO_HIGH = 1.2
 
+# Default range: 10th / 90th percentile of actual/forecast, by forecast size.
+# Calibrated Nov 4 on weeks 116-125 (all observed pairs, method=last);
+# coverage checked on weeks 126-135: 81.8% / 80.8% / 79.4% (target 80%).
+# Regenerate with outputs/calibrate_range_by_tier.py. Weeks 136-145 not used.
+RANGE_TABLE = pd.DataFrame({
+    "tier": [0, 1, 2],
+    "lower_edge": [-np.inf, 69.0, 230.0],
+    "upper_edge": [69.0, 230.0, np.inf],
+    "low_mult": [0.481, 0.367, 0.395],
+    "high_mult": [3.929, 1.978, 1.409],
+})
+RANGE_SOURCE = "empirical_p10_p90_by_size_weeks116_125"
 
-def forecast_rows(train, history_end_week, pairs=DEMO_PAIRS, method=METHOD,
-                  low_mult=SCENARIO_LOW, high_mult=SCENARIO_HIGH, range_source="assumed_x0.8_x1.2"):
+
+def forecast_rows(train, history_end_week, pairs=DEMO_PAIRS, method=METHOD):
     """Forecast orders for week history_end_week + 1, using only rows up to history_end_week.
 
     Returns one row per centre-meal pair with: center_id, meal_id, target_week,
-    history_end_week, forecast_orders, method, scenario_low, scenario_high, range_source.
+    history_end_week, forecast_orders, method, volume_tier, scenario_low, scenario_high, range_source.
+    The range is model uncertainty only (see RANGE_TABLE); manager adjustments are applied later.
     Pairs with no history are forecast with the documented fallback and labelled as such.
     """
     history = train[train["week"] <= history_end_week]
@@ -38,15 +51,13 @@ def forecast_rows(train, history_end_week, pairs=DEMO_PAIRS, method=METHOD,
     if not np.isfinite(prediction).all() or (prediction < 0).any():
         raise ValueError("Forecasts must be finite and non-negative")
     seen = future.set_index(KEYS).index.isin(history.set_index(KEYS).index)
-    return future.assign(
+    rows = future.assign(
         target_week=history_end_week + 1,
         history_end_week=history_end_week,
         forecast_orders=prediction,
         method=np.where(seen, method, "fallback_recent_meal_or_global_mean"),
-        scenario_low=prediction * low_mult,
-        scenario_high=prediction * high_mult,
-        range_source=range_source,
     )
+    return apply_range(rows, RANGE_TABLE).assign(range_source=RANGE_SOURCE)
 
 
 def rolling_forecasts(train, first_target, last_target, method=METHOD, pairs=None):
