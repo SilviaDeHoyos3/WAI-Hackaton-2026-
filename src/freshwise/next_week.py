@@ -39,3 +39,45 @@ def forecast_rows(train, history_end_week, pairs=DEMO_PAIRS, method="trailing4")
         scenario_low=prediction * SCENARIO_LOW,
         scenario_high=prediction * SCENARIO_HIGH,
     )
+
+
+def rolling_forecasts(train, first_target, last_target, method="trailing4", pairs=None):
+    """One-week-ahead forecasts for each target week from first_target to last_target.
+
+    For target week t, only rows with week < t are used as history. Rows are produced
+    only where an observed outcome exists in week t (missing rows are not treated as zero).
+    Returns forecast rows plus `actual_orders` for evaluation.
+    """
+    pair_filter = pd.DataFrame(list(pairs), columns=KEYS) if pairs is not None else None
+    frames = []
+    for target in range(first_target, last_target + 1):
+        actual = train[train["week"] == target]
+        if pair_filter is not None:
+            actual = actual.merge(pair_filter, on=KEYS)
+        if actual.empty:
+            continue
+        history = train[train["week"] < target]
+        prediction = np.asarray(predict(history, actual, method), dtype=float)
+        frames.append(actual[KEYS].reset_index(drop=True).assign(
+            target_week=target,
+            history_end_week=target - 1,
+            method=method,
+            forecast_orders=prediction,
+            actual_orders=actual["num_orders"].to_numpy(),
+        ))
+    if not frames:
+        raise ValueError("No observed rows in the requested target weeks")
+    return pd.concat(frames, ignore_index=True)
+
+
+def error_summary(rows, by=("method",)):
+    """MAE and WAPE per group. WAPE = total absolute error / total actual orders."""
+    def summarise(group):
+        abs_error = (group["actual_orders"] - group["forecast_orders"]).abs()
+        total_actual = group["actual_orders"].sum()
+        return pd.Series({
+            "rows": len(group),
+            "mae": abs_error.mean(),
+            "wape": abs_error.sum() / total_actual if total_actual > 0 else np.nan,
+        })
+    return rows.groupby(list(by)).apply(summarise).reset_index()
