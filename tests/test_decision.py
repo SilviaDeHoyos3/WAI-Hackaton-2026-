@@ -7,6 +7,7 @@ from freshwise.decision import (
     average_scenario_loss,
     optimize_preparation,
     adjust_demand_scenarios,
+    compare_preparation_plans,
 )
 
 
@@ -260,3 +261,86 @@ class DecisionTests(unittest.TestCase):
             original_loss_on_custom, 190 / 3
         )
         self.assertAlmostEqual(custom_loss, 60)
+
+    def test_compare_plans_returns_complete_comparison(self):
+        scenarios = [70, 100, 130]
+
+        result = compare_preparation_plans(
+            20, scenarios, 2, 5, 1, 140, 0.25
+        )
+
+        self.assertEqual(
+            result["original_plan"]["prepare_qty"], 110
+        )
+        self.assertEqual(
+            result["custom_plan"]["prepare_qty"], 120
+        )
+        self.assertEqual(
+            result["custom_adjustment"]["updated_scenarios"],
+            [80, 110, 140],
+        )
+
+        comparison = result["loss_comparison"]
+
+        self.assertAlmostEqual(
+            comparison["original_plan"]["on_original"], 60
+        )
+        self.assertAlmostEqual(
+            comparison["original_plan"]["on_updated"], 190 / 3
+        )
+        self.assertAlmostEqual(
+            comparison["custom_plan"]["on_original"], 80
+        )
+        self.assertAlmostEqual(
+            comparison["custom_plan"]["on_updated"], 60
+        )
+
+        self.assertEqual(scenarios, [70, 100, 130])
+
+    def test_compare_plans_zero_weight_keeps_same_plan(self):
+        result = compare_preparation_plans(
+            20, [70, 100, 130], 2, 5, 1, 140, 0
+        )
+
+        self.assertEqual(
+            result["original_plan"],
+            result["custom_plan"],
+        )
+
+        self.assertEqual(
+            result["custom_adjustment"]["updated_scenarios"],
+            [70, 100, 130],
+        )
+
+        comparison = result["loss_comparison"]
+
+        for plan in ["original_plan", "custom_plan"]:
+            self.assertAlmostEqual(
+                comparison[plan]["on_original"], 60
+            )
+            self.assertAlmostEqual(
+                comparison[plan]["on_updated"], 60
+            )
+
+    def test_compare_plans_preserves_input_assumptions(self):
+        result = compare_preparation_plans(
+            20, [70, 100, 130], 2, 5, 1, 140, 0.25
+        )
+
+        self.assertEqual(
+            result["inputs"],
+            {
+                "inventory": 20,
+                "overage_cost": 2,
+                "underage_cost": 5,
+                "anchor_index": 1,
+                "manager_estimate": 140,
+                "opinion_weight": 0.25,
+            },
+        )
+
+    def test_compare_plans_rejects_invalid_opinion_weight(self):
+        with self.assertRaises(ValueError):
+            compare_preparation_plans(
+                20, [70, 100, 130], 2, 5, 1, 140, 1.5
+            )

@@ -138,3 +138,78 @@ def adjust_demand_scenarios(
         "adjustment": adjustment,
         "updated_scenarios": updated_scenarios,
     }
+
+def compare_preparation_plans(
+    inventory,
+    demand_scenarios,
+    overage_cost,
+    underage_cost,
+    anchor_index,
+    manager_estimate,
+    opinion_weight,
+):
+    original_scenarios = list(demand_scenarios)
+
+    custom = adjust_demand_scenarios(
+        original_scenarios,
+        anchor_index,
+        manager_estimate,
+        opinion_weight,
+    )
+
+    updated_scenarios = custom["updated_scenarios"]
+
+    original_plan = optimize_preparation(
+        inventory,
+        original_scenarios,
+        overage_cost,
+        underage_cost,
+    )
+
+    custom_plan = optimize_preparation(
+        inventory,
+        updated_scenarios,
+        overage_cost,
+        underage_cost,
+    )
+
+    original_on_updated = average_scenario_loss(
+        original_plan["prepare_qty"],
+        inventory,
+        updated_scenarios,
+        overage_cost,
+        underage_cost,
+    )
+
+    custom_on_original = average_scenario_loss(
+        custom_plan["prepare_qty"],
+        inventory,
+        original_scenarios,
+        overage_cost,
+        underage_cost,
+    )
+
+    return {
+        "inputs": {
+            "inventory": inventory,
+            "overage_cost": overage_cost,
+            "underage_cost": underage_cost,
+            "anchor_index": anchor_index,
+            "manager_estimate": manager_estimate,
+            "opinion_weight": opinion_weight,
+        },
+        "original_scenarios": original_scenarios,
+        "custom_adjustment": custom,
+        "original_plan": original_plan,
+        "custom_plan": custom_plan,
+        "loss_comparison": {
+            "original_plan": {
+                "on_original": original_plan["average_loss"],
+                "on_updated": original_on_updated,
+            },
+            "custom_plan": {
+                "on_original": custom_on_original,
+                "on_updated": custom_plan["average_loss"],
+            },
+        },
+    }
