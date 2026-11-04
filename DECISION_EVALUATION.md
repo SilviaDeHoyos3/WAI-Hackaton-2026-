@@ -174,3 +174,34 @@ guarantee future service performance.
 
 Keep all four meals and the common quantile 0.55.
 Do not select meal-specific policies from these observed results.
+
+## Reusable implementation and reproducibility check
+
+The experimental quantile calculation is now implemented in:
+
+`src/freshwise/empirical.py`
+
+Entry point: `recommend_empirical_preparation`.
+
+The project suite passed 57 tests. A separate integration
+check reproduced all 40 development cases from the frozen
+blend-q0.55 script, matching excess, unmet orders and penalty.
+
+Reproduced totals:
+- Excess: 1950
+- Unmet orders: 1971
+- Penalty: 13755
+
+The same check also passed using the locally archived code
+snapshot, without relying on the temporary working directory.
+
+Local archive:
+`../output/evaluation_2026-11-04/`
+
+This archive is outside the Git repository and is not
+automatically available to teammates. Source CSVs remain
+external inputs.
+
+This verifies implementation equivalence and reproducibility.
+It is not an independent performance evaluation.
+Weeks 136–145 have not been evaluated in these experiments.
