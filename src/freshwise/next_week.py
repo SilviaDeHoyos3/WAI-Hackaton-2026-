@@ -110,3 +110,37 @@ def coverage(rows, low_mult, high_mult):
     high = rows["forecast_orders"] * high_mult
     inside = (rows["actual_orders"] >= low) & (rows["actual_orders"] <= high)
     return float(inside.mean())
+
+
+def calibrate_range_by_tier(rows, n_tiers=3, lower_q=0.10, upper_q=0.90):
+    """Empirical range multipliers per forecast-size tier.
+
+    Tiers are quantile bins of forecast_orders (known at prediction time, so no leakage).
+    Returns a table with columns: tier, lower_edge, upper_edge, low_mult, high_mult, rows.
+    The first lower_edge and last upper_edge are open (-inf / +inf).
+    """
+    usable = rows[rows["forecast_orders"] > 0]
+    if usable.empty:
+        raise ValueError("No rows with a positive forecast to calibrate on")
+    inner = usable["forecast_orders"].quantile(np.linspace(0, 1, n_tiers + 1)[1:-1]).to_numpy()
+    edges = np.concatenate([[-np.inf], inner, [np.inf]])
+    tier = np.searchsorted(edges[1:-1], usable["forecast_orders"].to_numpy(), side="right")
+    ratio = (usable["actual_orders"] / usable["forecast_orders"]).to_numpy()
+    records = []
+    for t in range(n_tiers):
+        r = ratio[tier == t]
+        records.append({"tier": t, "lower_edge": edges[t], "upper_edge": edges[t + 1],
+                        "low_mult": float(np.quantile(r, lower_q)),
+                        "high_mult": float(np.quantile(r, upper_q)), "rows": int(len(r))})
+    return pd.DataFrame(records)
+
+
+def apply_range(rows, table):
+    """Add scenario_low / scenario_high using the tier table from calibrate_range_by_tier."""
+    inner = table["lower_edge"].to_numpy()[1:]
+    tier = np.searchsorted(inner, rows["forecast_orders"].to_numpy(), side="right")
+    low = table["low_mult"].to_numpy()[tier]
+    high = table["high_mult"].to_numpy()[tier]
+    return rows.assign(volume_tier=tier,
+                       scenario_low=rows["forecast_orders"].to_numpy() * low,
+                       scenario_high=rows["forecast_orders"].to_numpy() * high)
