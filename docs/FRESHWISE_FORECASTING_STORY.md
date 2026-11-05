@@ -1,8 +1,21 @@
-# FreshWise: forecasting work, findings and story
+# FreshWise: agreed approach, story and work plan
 
 Owner: Silvia (forecasting) · Team: Ari (decisions), Lan (demo, submission)
-Status: Nov 5, 2026. Development results only; weeks 136–145 are reserved for one final frozen run.
+Status: Nov 5, 2026. **Approach agreed** (see §0). Development results only; weeks 136–145 are reserved for one final frozen run.
 Branch: `forecast-next-week` · PR #2 · Detailed numbers: `docs/FORECAST_FINDINGS_2026-11-05.md`
+
+---
+
+## 0. Agreed approach (Nov 5)
+
+**Main approach: better forecast + use leftovers first, tested on real weekly data.**
+
+1. **Forecast:** next-week orders per centre and meal, using `hgb` (prices and promotions assumed known at planning time). `last` and the 50/50 blend stay as baselines.
+2. **Plan around stock:** each week, prepare only what is missing after counting usable leftovers. Leftovers are used first; anything not used within one extra week is waste.
+3. **Compare preparation rules on the same cases:** (a) prepare the forecast minus leftovers, and (b) Ari's empirical-quantile rule minus leftovers. Choose with a rule agreed **before** running.
+4. **Extension (only if time allows):** Ari's flexible preparation (shared components, delayed allocation) as a small, clearly labelled synthetic demo. Regional stock sharing stays as future work.
+
+Everyone works from this document. Changes to it are agreed in the team chat first.
 
 ---
 
@@ -137,15 +150,54 @@ Run both teams' preparation rules on exactly the same cases and assumptions, the
 
 Ari's Gate 1 asks Silvia to specify joint demand cases and to separate **total-volume** uncertainty from **menu-mix** uncertainty. Proposal: estimate both from real one-week-ahead errors for the centre-13 demo meals (how much total demand moves vs how much the split between meals moves), and use those as the synthetic scenario settings. The scenarios are then grounded in data rather than chosen freely, and are labelled as data-informed synthetic inputs.
 
-## 6. Decisions needed before the Nov 7 freeze
+## 6. Work plan: who does what
 
-1. Forecast method: `last`, blend or `hgb`. Proposed: `hgb`, stating the price/promo assumption and the failed demo-B check.
-2. Are FreshWise meals storable for one extra week (frozen, kits, prepped ingredients)? This decides whether carry-over is the headline.
-3. Selection rule and service floor (see §5).
-4. Fixed 40-portion inventory: replace with carried stock starting at 0.
-5. 5% waste: a goal shown with its trade-off, not a guaranteed result.
-6. Whether regional stock sharing goes into the demo or stays as future work.
-7. Scope of Ari's flexible-preparation extension (Gate 0 in Ari's document): proceed as a narrow synthetic demo, or keep as future work.
+### 6.1 Shared simulation contract (build once, used by everyone)
+
+One function runs every preparation rule on the same cases, so results are comparable:
+
+```python
+simulate_carryover(rows, prepare_fn, shelf_life_weeks=1, start_stock=0)
+```
+
+- `rows`: keyed forecast rows (`center_id, meal_id, target_week, history_end_week, forecast_orders, method, actual_orders`), from Silvia.
+- `prepare_fn(forecast, leftovers, context) -> int`: the preparation rule. Rule (a) is `max(0, ceil(forecast - leftovers))`; rule (b) wraps Ari's `recommend_empirical_preparation` with `inventory = leftovers`.
+- Stock rules: FIFO; leftovers older than `shelf_life_weeks` become waste; leftovers are dropped if the next week has no observed row; start stock 0.
+- Output per row: `leftovers_in, prepared, supply, sold, unmet, expired` (expired = waste), plus totals per window, per meal and per week.
+- Metrics: waste rate, unmet rate, penalty (overage 2, underage 5).
+
+### 6.2 Selection rule (agreed before running)
+
+> Choose the forecast + rule combination with the **lowest waste rate** whose **unmet rate is not higher than today's baseline** (`last`, prepare the forecast, no carry-over) on **both** evaluation windows (106–115 and 126–135), for the demo meals. Report all-meals results alongside. If nothing qualifies, keep the baseline and say so.
+
+Quantiles for rule (b) are calibrated on each forecast's own errors (weeks 96–105 for window A, 116–125 for window B). No tuning on the evaluation windows.
+
+### 6.3 Tasks and dates
+
+| Date | Silvia (forecast + simulator) | Ari (decision rules) | Lan (demo + submission) |
+|---|---|---|---|
+| **Nov 6** | Build `src/freshwise/carryover.py` (`simulate_carryover`) + tests; `scripts/evaluate_carryover.py` producing keyed rows and metrics for `last`, blend, `hgb` with rule (a). Add `method="hgb"` to `forecast_rows`; recalibrate the range on `hgb` errors; add `scikit-learn` to `pyproject.toml` | Review and merge PR #2. Wrap `empirical.py` as rule (b) for `prepare_fn`. Confirm the stock assumptions (start 0, 1-week shelf life, FIFO, penalties 2/5) | Check official rules and formats. Draft the demo screen for meal 1198: forecast → stock → recommendation → manager adjustment → explanation |
+| **Nov 6 (evening)** | Team agrees the selection rule (§6.2) in writing | ← same | ← same |
+| **Nov 7** | Run the comparison **once** (rules a and b, all forecasts, both windows); share the table | Review the results and the rule (b) behaviour per meal | Plug the real functions into the screen (no numbers computed in the UI) |
+| **Nov 7** | **Freeze together:** forecast, shelf life, rule, assumptions, metrics | ← same | ← same |
+| **Nov 8** | Buffer / fix broken paths only. Optional: data-informed demand scenarios (total volume vs menu mix) for Ari's extension | Optional: minimal flexible-preparation demo (two meals, one shared base), labelled synthetic | Assistant explanation text that calls tools; label observed vs simulated vs synthetic |
+| **Nov 9** | Run weeks 136–145 **once** with the frozen setup; save all rows | Check the final decision numbers | Insert final numbers into slides |
+| **Nov 10** | Fix README or dependency gaps found by Lan | Review the final evidence wording | Reproduce from the README on a clean setup; rehearse |
+| **Nov 11** | Approve forecasting claims | Approve decision claims | Submit; save the receipt |
+| **Nov 12** | Buffer: submission blockers only | ← same | ← same |
+
+### 6.4 Still open (decide by Nov 6 evening)
+
+1. Are FreshWise meals storable for one extra week (frozen, kits, prepped ingredients)? This must be stated as the core assumption.
+2. Shelf life: 1 week only, or also show 0 and 2 weeks as a sensitivity check?
+3. Does Ari's flexible-preparation extension go into the demo, or stay as future work?
+
+### 6.5 Rules for working together
+
+- One owner per file; agree before editing someone else's core file.
+- Small pull requests; Ari reviews forecast/simulator PRs, Silvia reviews decision-rule PRs, Lan confirms what the screen shows.
+- End every session with: "Done / Next / Blocked by / Handoff file".
+- No raw data, credentials or large outputs in Git. Weeks 136–145 are opened only on Nov 9.
 
 ---
 
@@ -175,7 +227,9 @@ Ari's Gate 1 asks Silvia to specify joint demand cases and to separate **total-v
 |---|---|
 | `docs/scope.md` | Demo meals and selection rule |
 | `docs/forecast.md` | Forecast method, range and limits |
-| `docs/FORECAST_FINDINGS_2026-11-05.md` | Detailed results tables and the 7 decisions |
+| `docs/FORECAST_FINDINGS_2026-11-05.md` | Detailed results tables |
+| `docs/flexible_preparation_strategy.md` (on `main`) | Ari's flexible-preparation proposal |
+| `src/freshwise/carryover.py`, `scripts/evaluate_carryover.py` | Shared simulator and comparison (to build Nov 6) |
 | `src/freshwise/next_week.py` | `forecast_rows`, rolling forecasts, error summary, range |
 | `src/freshwise/supervised.py` | `hgb` model (experimental) |
 | `scripts/evaluate_supervised.py` | One-shot comparison, weeks 106–115 and 126–135 |
