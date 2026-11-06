@@ -50,26 +50,60 @@ def _columns(plan_features):
     return CATEGORICAL + DEMAND_FEATURES + (PLAN_FEATURES if plan_features else [])
 
 
+def _fit(train, plan_features=True):
+    from sklearn.ensemble import HistGradientBoostingRegressor
+
+    cols = _columns(plan_features)
+    model = HistGradientBoostingRegressor(
+        categorical_features=[c in CATEGORICAL for c in cols], **PARAMS)
+    model.fit(train[cols], np.log1p(train["num_orders"]))
+    return model, cols
+
+
+def _predict(model, cols, rows):
+    return np.clip(np.expm1(model.predict(rows[cols])), 0, None)
+
+
 def fit_predict_block(features, fit_end, first_target, last_target, plan_features=True):
     """Fit on weeks <= fit_end, predict observed rows in [first_target, last_target].
 
     Lags for later target weeks use actual outcomes of completed weeks (rolling origin
     for features; model refit only at fit_end).
     """
-    from sklearn.ensemble import HistGradientBoostingRegressor
-
-    cols = _columns(plan_features)
     train = features[features["week"] <= fit_end]
     test = features[(features["week"] >= first_target) & (features["week"] <= last_target)]
-    model = HistGradientBoostingRegressor(
-        categorical_features=[c in CATEGORICAL for c in cols], **PARAMS)
-    model.fit(train[cols], np.log1p(train["num_orders"]))
-    prediction = np.clip(np.expm1(model.predict(test[cols])), 0, None)
+    model, cols = _fit(train, plan_features)
     return test[KEYS].reset_index(drop=True).assign(
         target_week=test["week"].to_numpy(),
         history_end_week=test["week"].to_numpy() - 1,
         model_fit_end=fit_end,
         method="hgb" if plan_features else "hgb_no_plan",
-        forecast_orders=prediction,
+        forecast_orders=_predict(model, cols, test),
         actual_orders=test["num_orders"].to_numpy(),
     )
+
+
+def next_week_forecast(enriched, history_end_week, pairs):
+    """hgb forecast for week history_end_week + 1 for the given (center_id, meal_id) pairs.
+
+    `enriched` = train.csv rows joined with meal_info and fulfilment_center_info
+    (freshwise.data.enrich). The target-week row supplies the planning-time price and
+    promotion values; its num_orders is masked before features are built, so the
+    outcome being predicted is never used. Returns one row per pair with
+    forecast_orders = NaN where the target-week planning row does not exist.
+    """
+    needed = {"category", "cuisine", "center_type", "city_code", "region_code", "op_area"}
+    if not needed.issubset(enriched.columns):
+        raise ValueError("hgb needs enriched data: use freshwise.data.enrich(train, meals, centers)")
+    target = history_end_week + 1
+    data = enriched[enriched["week"] <= target].copy()
+    data.loc[data["week"] == target, "num_orders"] = np.nan
+    features = build_features(data)
+    model, cols = _fit(features[features["week"] <= history_end_week])
+    wanted = pd.DataFrame(list(pairs), columns=KEYS)
+    rows = wanted.merge(features[features["week"] == target], on=KEYS, how="left")
+    prediction = np.full(len(rows), np.nan)
+    has_row = rows["week"].notna().to_numpy()
+    if has_row.any():
+        prediction[has_row] = _predict(model, cols, rows[has_row])
+    return wanted.assign(forecast_orders=prediction)

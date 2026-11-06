@@ -14,50 +14,83 @@ from .forecast import KEYS, predict
 # Selected using weeks 1-115 only; see docs/scope.md.
 DEMO_PAIRS = [(13, 2306), (13, 2444), (13, 1198), (13, 2664)]
 
-# Frozen on Nov 4 from development weeks 116-125 (WAPE 41.5% vs 42.9% for trailing4).
+# Default frozen on Nov 4 from development weeks 116-125 (WAPE 41.5% vs 42.9% for trailing4).
+# "hgb" is available as an option; the team decides the default at the Nov 7 freeze.
 METHOD = "last"
 
 # Fallback range: hand-set sensitivity assumption, NOT calibrated.
 SCENARIO_LOW = 0.8
 SCENARIO_HIGH = 1.2
 
-# Default range: 10th / 90th percentile of actual/forecast, by forecast size.
-# Calibrated Nov 4 on weeks 116-125 (all observed pairs, method=last);
-# coverage checked on weeks 126-135: 81.8% / 80.8% / 79.4% (target 80%).
-# Regenerate with outputs/calibrate_range_by_tier.py. Weeks 136-145 not used.
-RANGE_TABLE = pd.DataFrame({
-    "tier": [0, 1, 2],
-    "lower_edge": [-np.inf, 69.0, 230.0],
-    "upper_edge": [69.0, 230.0, np.inf],
-    "low_mult": [0.481, 0.367, 0.395],
-    "high_mult": [3.929, 1.978, 1.409],
-})
+# Ranges: 10th / 90th percentile of actual/forecast, by forecast-size tier, calibrated on
+# each method's OWN one-week-ahead errors for weeks 116-125 (all observed pairs).
+# Coverage checked on weeks 126-135 (target 80%). Weeks 136-145 not used.
+#   last: coverage 81.8% / 80.8% / 79.4%  (outputs/calibrate_range_by_tier.py)
+#   hgb:  coverage 82.3% / 79.3% / 76.5%, overall 79.4%, demo 80% (model fit on weeks <= 115)
+RANGE_TABLES = {
+    "last": pd.DataFrame({
+        "tier": [0, 1, 2],
+        "lower_edge": [-np.inf, 69.0, 230.0],
+        "upper_edge": [69.0, 230.0, np.inf],
+        "low_mult": [0.481, 0.367, 0.395],
+        "high_mult": [3.929, 1.978, 1.409],
+    }),
+    "hgb": pd.DataFrame({
+        "tier": [0, 1, 2],
+        "lower_edge": [-np.inf, 70.891, 214.849],
+        "upper_edge": [70.891, 214.849, np.inf],
+        "low_mult": [0.441, 0.521, 0.660],
+        "high_mult": [2.023, 1.752, 1.471],
+    }),
+}
+RANGE_TABLE = RANGE_TABLES["last"]  # backwards compatible name
 RANGE_SOURCE = "empirical_p10_p90_by_size_weeks116_125"
+CALIBRATION_LAST_WEEK = 125  # ranges are out-of-sample only for target weeks > 125
 
 
 def forecast_rows(train, history_end_week, pairs=DEMO_PAIRS, method=METHOD):
-    """Forecast orders for week history_end_week + 1, using only rows up to history_end_week.
+    """Forecast orders for week history_end_week + 1, using only outcomes up to history_end_week.
+
+    method: "last" or "trailing4" (raw train.csv rows are enough) or "hgb" (needs
+    enriched rows from freshwise.data.enrich, including the target-week planning row
+    with price and promotion values; requires scikit-learn).
 
     Returns one row per centre-meal pair with: center_id, meal_id, target_week,
-    history_end_week, forecast_orders, method, volume_tier, scenario_low, scenario_high, range_source.
-    The range is model uncertainty only (see RANGE_TABLE); manager adjustments are applied later.
-    Pairs with no history are forecast with the documented fallback and labelled as such.
+    history_end_week, forecast_orders, method, volume_tier, scenario_low, scenario_high,
+    range_source. The range is model uncertainty only; manager adjustments are applied
+    later. Pairs that cannot be forecast with the requested method use the documented
+    fallback and say so in `method`.
     """
     history = train[train["week"] <= history_end_week]
     if history.empty:
         raise ValueError("No history at or before history_end_week")
     future = pd.DataFrame(list(pairs), columns=KEYS)
-    prediction = np.asarray(predict(history, future, method), dtype=float)
+    seen = future.set_index(KEYS).index.isin(history.set_index(KEYS).index)
+    baseline = np.asarray(predict(history, future, "last" if method == "hgb" else method), dtype=float)
+    if method == "hgb":
+        from .supervised import next_week_forecast
+
+        hgb = next_week_forecast(train, history_end_week, pairs)["forecast_orders"].to_numpy()
+        use_hgb = ~np.isnan(hgb)
+        prediction = np.where(use_hgb, hgb, baseline)
+        labels = np.where(use_hgb, "hgb",
+                          np.where(seen, "fallback_last_no_planning_row", "fallback_recent_meal_or_global_mean"))
+    else:
+        prediction = baseline
+        labels = np.where(seen, method, "fallback_recent_meal_or_global_mean")
     if not np.isfinite(prediction).all() or (prediction < 0).any():
         raise ValueError("Forecasts must be finite and non-negative")
-    seen = future.set_index(KEYS).index.isin(history.set_index(KEYS).index)
     rows = future.assign(
         target_week=history_end_week + 1,
         history_end_week=history_end_week,
         forecast_orders=prediction,
-        method=np.where(seen, method, "fallback_recent_meal_or_global_mean"),
+        method=labels,
     )
-    return apply_range(rows, RANGE_TABLE).assign(range_source=RANGE_SOURCE)
+    table = RANGE_TABLES.get(method, RANGE_TABLES["last"])
+    source = RANGE_SOURCE if method in RANGE_TABLES else RANGE_SOURCE + "_borrowed_from_last"
+    if history_end_week + 1 <= CALIBRATION_LAST_WEEK:
+        source = "in_sample_calibration_overlap"
+    return apply_range(rows, table).assign(range_source=source)
 
 
 def rolling_forecasts(train, first_target, last_target, method=METHOD, pairs=None):
