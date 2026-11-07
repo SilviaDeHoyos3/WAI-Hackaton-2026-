@@ -19,13 +19,15 @@ rule = prepare_forecast_minus_leftovers
 class CarryoverTests(unittest.TestCase):
     def test_hand_calculated_path(self):
         # Week 1: prepare 10, sell 6, 4 left. Week 2: forecast 10 - 4 = prepare 6,
-        # sell old 4 first then 3 new (demand 7), 3 new left. Week 3 (last): prepare 7, sell 8 -> 2 left at end.
+        # sell old 4 first then 3 new (demand 7), 3 new left. Week 3 (last): prepare 7,
+        # sell old 3 then 5 new -> 2 new portions still usable at the end (terminal, not expired).
         r = simulate_carryover(rows([10, 10, 10], [6, 7, 8]), rule, shelf_life_weeks=1)
         self.assertEqual(r.prepared.tolist(), [10, 6, 7])
         self.assertEqual(r.leftovers_in.tolist(), [0, 4, 3])
         self.assertEqual(r.sold.tolist(), [6, 7, 8])
         self.assertEqual(r.unmet.tolist(), [0, 0, 0])
-        self.assertEqual(r.expired.tolist(), [0, 0, 2])
+        self.assertEqual(r.expired.tolist(), [0, 0, 0])
+        self.assertEqual(r.terminal_stock.tolist(), [0, 0, 2])
 
     def test_food_expires_after_shelf_life(self):
         # 5 left after week 1, demand 0 in week 2 -> those 5 are too old after week 2.
@@ -36,6 +38,7 @@ class CarryoverTests(unittest.TestCase):
         r = simulate_carryover(rows([10, 10], [6, 7]), rule, shelf_life_weeks=0)
         self.assertEqual(r.leftovers_in.tolist(), [0, 0])
         self.assertEqual(r.expired.tolist(), [4, 3])
+        self.assertEqual(r.terminal_stock.tolist(), [0, 0])
 
     def test_missing_week_ages_stock(self):
         r = simulate_carryover(rows([10, 10], [6, 6], weeks=[1, 3]), rule, shelf_life_weeks=1)
@@ -46,7 +49,7 @@ class CarryoverTests(unittest.TestCase):
         rng = np.random.default_rng(0)
         r = simulate_carryover(rows(rng.uniform(0, 50, 30).tolist(), rng.integers(0, 50, 30).tolist()),
                                rule, shelf_life_weeks=2, start_stock=7)
-        self.assertEqual(7 + r.prepared.sum(), r.sold.sum() + r.expired.sum())
+        self.assertEqual(7 + r.prepared.sum(), r.sold.sum() + r.expired.sum() + r.terminal_stock.sum())
         self.assertTrue(((r.sold + r.unmet) == r.actual_orders).all())
 
     def test_groups_are_independent_and_order_free(self):
@@ -71,9 +74,18 @@ class CarryoverTests(unittest.TestCase):
     def test_summary_rates(self):
         r = simulate_carryover(rows([10, 10, 10], [6, 7, 8]), rule)
         s = summarize(r.assign(method="m")).iloc[0]
-        self.assertAlmostEqual(s.waste_rate, 2 / 23)
+        self.assertAlmostEqual(s.waste_rate, 0.0)
+        self.assertAlmostEqual(s.waste_rate_with_terminal, 2 / 23)
         self.assertAlmostEqual(s.unmet_rate, 0.0)
-        self.assertEqual(s.penalty, 4)
+        self.assertEqual(s.penalty, 0)
+        self.assertEqual(s.penalty_with_terminal, 4)
+
+    def test_old_stock_at_the_end_is_expired_not_terminal(self):
+        # 5 left after week 1 (age 1 in week 2), nothing sold in week 2 and nothing prepared:
+        # at the end that stock would be 2 weeks old -> expired; nothing is terminal.
+        r = simulate_carryover(rows([10, 0], [5, 0]), rule, shelf_life_weeks=1)
+        self.assertEqual(r.expired.tolist(), [0, 5])
+        self.assertEqual(r.terminal_stock.tolist(), [0, 0])
 
 
 if __name__ == "__main__":

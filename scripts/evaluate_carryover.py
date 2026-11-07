@@ -40,23 +40,28 @@ pd.set_option("display.width", 250)
 pd.set_option("display.max_columns", None)
 for pop in ("demo meals", "all meals"):
     s = summary[summary.population == pop]
-    print(f"\n{pop.upper()}: waste rate / unmet rate (%)")
+    print(f"\n{pop.upper()}: waste (expired only / incl. terminal stock) and unmet rate (%)")
     t = s.pivot_table(index=["method", "rule", "shelf_life_weeks"], columns="window",
-                      values=["waste_rate", "unmet_rate"]) * 100
+                      values=["waste_rate", "waste_rate_with_terminal", "unmet_rate"]) * 100
     print(t.round(1))
+
+# Waste metric used for selection - TO CONFIRM BY THE TEAM BEFORE RUNNING.
+# "waste_rate_with_terminal" (conservative: end-of-horizon usable stock counted as waste)
+# or "waste_rate" (expired stock only). Both are always reported.
+SELECTION_WASTE = "waste_rate_with_terminal"
 
 # Selection rule (6.2): lowest waste with unmet not above the baseline
 # (last, rule a, shelf life 0) in BOTH windows, demo meals.
 d = summary[summary.population == "demo meals"].set_index(["window", "method", "rule", "shelf_life_weeks"])
 base = {w: d.loc[(w, "last", "a_forecast_minus_leftovers", 0), "unmet_rate"] for w in ("A", "B")}
-print("\nSELECTION (demo meals, headline shelf life 1 week)")
+print(f"\nSELECTION (demo meals, shelf life 1 week, waste metric = {SELECTION_WASTE})")
 ok = []
 for (method, rule) in {(m, r) for _, m, r, _ in d.index}:
     a = d.loc[("A", method, rule, 1)]
     b = d.loc[("B", method, rule, 1)]
     qualifies = a.unmet_rate <= base["A"] and b.unmet_rate <= base["B"]
-    print(f"  {method:6} {rule:28} waste A {a.waste_rate:.1%} B {b.waste_rate:.1%} | "
+    print(f"  {method:6} {rule:28} waste A {a[SELECTION_WASTE]:.1%} B {b[SELECTION_WASTE]:.1%} | "
           f"unmet A {a.unmet_rate:.1%} B {b.unmet_rate:.1%} | {'qualifies' if qualifies else 'fails service floor'}")
     if qualifies:
-        ok.append(((a.waste_rate + b.waste_rate) / 2, method, rule))
+        ok.append(((a[SELECTION_WASTE] + b[SELECTION_WASTE]) / 2, method, rule))
 print("  WINNER:", min(ok)[1:] if ok else "none - keep baseline")

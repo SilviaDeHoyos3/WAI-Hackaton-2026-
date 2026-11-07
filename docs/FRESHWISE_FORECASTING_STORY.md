@@ -166,18 +166,23 @@ simulate_carryover(rows, prepare_fn, shelf_life_weeks=1, start_stock=0)
 - Output per row: `leftovers_in, prepared, supply, sold, unmet, expired` (expired = waste), plus totals per window, per meal and per week.
 - Metrics: waste rate, unmet rate, penalty (overage 2, underage 5).
 
-### 6.2 Selection rule (agreed before running)
+### 6.2 Selection rule (agreed Nov 6, before running)
 
-> Choose the forecast + rule combination with the **lowest waste rate** whose **unmet rate is not higher than today's baseline** (`last`, prepare the forecast, no carry-over) on **both** evaluation windows (106–115 and 126–135), for the demo meals. Report all-meals results alongside. If nothing qualifies, keep the baseline and say so.
+> Choose the forecast + rule combination with the **lowest `waste_rate_with_terminal`** whose **unmet rate is not higher than today's baseline** (`last`, prepare the forecast, no carry-over) on **both** evaluation windows (106–115 and 126–135), for the demo meals, with a shelf life of 1 week. Report all-meals results alongside. If nothing qualifies, keep the baseline and say so.
 
-Quantiles for rule (b) are calibrated on each forecast's own errors (weeks 96–105 for window A, 116–125 for window B). No tuning on the evaluation windows.
+Agreed details (Silvia and Ari, Nov 6):
+
+- **Waste measures:** selection uses the conservative `waste_rate_with_terminal`. Both `waste_rate` (expired stock only) and `waste_rate_with_terminal` are always reported, and still-usable stock at the end of the horizon (`terminal_stock`) is kept distinct from `expired` waste.
+- **Rule (b) calibration:** Ari's adapter looks up actual/forecast ratios keyed by (method, window, forecast-size group). Size groups use fixed edges 69 / 230 on the forecast. Ratios come from each method's own calibration rows: weeks 96–105 for window A, 116–125 for window B. A strict check asserts that every calibration week is earlier than every evaluation week, so evaluation actuals never enter.
+- **Rule (b) quantiles:** two fixed, pre-registered variants, **0.55** and **5/7 ≈ 0.714**, both reported. No tuning on evaluation outcomes. Neither is assumed optimal for the carry-over setting.
+- **Ownership:** Silvia owns `src/freshwise/carryover.py` and its tests. Ari owns the rule (b) adapter and its changes to `scripts/evaluate_carryover.py`. The comparison is **not run** until Ari's adapter is merged.
 
 ### 6.3 Tasks and dates
 
 | Date | Silvia (forecast + simulator) | Ari (decision rules) | Lan (demo + submission) |
 |---|---|---|---|
 | **Nov 6** | Build `src/freshwise/carryover.py` (`simulate_carryover`) + tests; `scripts/evaluate_carryover.py` producing keyed rows and metrics for `last`, blend, `hgb` with rule (a). Add `method="hgb"` to `forecast_rows`; recalibrate the range on `hgb` errors; add `scikit-learn` to `pyproject.toml` | Review and merge PR #2. Wrap `empirical.py` as rule (b) for `prepare_fn`. Confirm the stock assumptions (start 0, 1-week shelf life, FIFO, penalties 2/5) | Check official rules and formats. Draft the demo screen for meal 1198: forecast → stock → recommendation → manager adjustment → explanation |
-| **Nov 6 (evening)** | Team agrees the selection rule (§6.2) in writing | ← same | ← same |
+| **Nov 6 (evening)** | ✅ Selection rule, waste measures and quantiles agreed (§6.2). Terminal stock reported separately (done) | Implementing the calibration lookup + rule (b) adapter; not running | ← |
 | **Nov 7** | Run the comparison **once** (rules a and b, all forecasts, both windows); share the table | Review the results and the rule (b) behaviour per meal | Plug the real functions into the screen (no numbers computed in the UI) |
 | **Nov 7** | **Freeze together:** forecast, shelf life, rule, assumptions, metrics | ← same | ← same |
 | **Nov 8** | Buffer / fix broken paths only. Optional: data-informed demand scenarios (total volume vs menu mix) for Ari's extension | Optional: minimal flexible-preparation demo (two meals, one shared base), labelled synthetic | Assistant explanation text that calls tools; label observed vs simulated vs synthetic |
@@ -189,8 +194,10 @@ Quantiles for rule (b) are calibrated on each forecast's own errors (weeks 96–
 ### 6.4 Still open (decide by Nov 6 evening)
 
 1. Are FreshWise meals storable for one extra week (frozen, kits, prepped ingredients)? This must be stated as the core assumption.
-2. Shelf life: 1 week only, or also show 0 and 2 weeks as a sensitivity check?
+2. Shelf life: 1 week as the headline, with 0 and 2 weeks as a sensitivity check? (The script already reports all three.)
 3. Does Ari's flexible-preparation extension go into the demo, or stay as future work?
+
+Decided: selection metric, waste measures, rule (b) quantiles and calibration inputs (§6.2).
 
 ### 6.5 Rules for working together
 
