@@ -13,13 +13,30 @@ Outputs (outputs/, not committed): carryover_rows.csv, carryover_summary.csv
 import pandas as pd
 
 from freshwise.carryover import prepare_forecast_minus_leftovers, simulate_carryover, summarize
+from freshwise.empirical_calibration import build_ratio_lookup
+from freshwise.preparation_rules import make_calibrated_empirical_rule
 
 METHODS = ["last", "blend", "hgb"]
 SHELF_LIVES = [0, 1, 2]
-RULES = {"a_forecast_minus_leftovers": prepare_forecast_minus_leftovers}
+all_rows = pd.read_csv("outputs/supervised_forecasts.csv")
+all_rows = all_rows[all_rows["method"].isin(METHODS)].copy()
 
-rows = pd.read_csv("outputs/supervised_forecasts.csv")
-rows = rows[(rows.role == "evaluation") & rows.method.isin(METHODS)]
+ratio_lookup = build_ratio_lookup(
+    all_rows,
+    methods=METHODS,
+)
+
+RULES = {
+    "a_forecast_minus_leftovers": prepare_forecast_minus_leftovers,
+    "b_empirical_q055": make_calibrated_empirical_rule(
+        ratio_lookup, 0.55
+    ),
+    "b_empirical_q5_over_7": make_calibrated_empirical_rule(
+        ratio_lookup, 5 / 7
+    ),
+}
+
+rows = all_rows[all_rows["role"] == "evaluation"].copy()
 assert rows.target_week.max() <= 135, "Final weeks must not be used here"
 
 results = []
