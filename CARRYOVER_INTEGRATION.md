@@ -44,27 +44,24 @@ Historical orders are observed data.
 Inventory, shelf life, waste and service outcomes are simulated.
 The adapter alone does not demonstrate waste reduction.
 
-## Quantile selection — proposal for team approval
+## Agreed quantile variants
 
-This procedure is proposed, not yet agreed or implemented.
+The comparison reports two fixed variants: 0.55 and 5/7.
+Neither quantile is selected or tuned on evaluation outcomes.
 
-- Candidate quantiles: 0.1, 0.2, ..., 0.9.
-- Select one quantile per forecast method, shared across the four
-  demo meals. Error-ratio distributions may still differ by size group.
-- For evaluation A (106–115), use only calibration weeks 96–105
-  to select the quantile.
-- For evaluation B (126–135), use only calibration weeks 116–125
-  to select the quantile.
-- Simulate each candidate with the same carry-over accounting.
-- On the calibration window, select the candidate with the lowest
-  waste rate among those whose unmet rate is no higher than the
-  last-forecast central baseline without carry-over.
-- Break ties by lower unmet rate, then lower quantile.
-- If no candidate qualifies, report this and retain the baseline
-  for that window.
-- Freeze the selected quantile before evaluating the next window.
-- Never change this procedure to improve evaluation results.
+Calibration ratios are stored once, keyed by:
+forecast method, window and forecast-size group.
 
-These remain development comparisons: these periods have already
-been examined. This procedure does not make them untouched test data.
-The team must separately freeze the procedure for weeks 136–145.
+Size groups: forecast <69; 69 <= forecast <230; forecast >=230.
+Calibration A: weeks 96–105; evaluation A: 106–115.
+Calibration B: weeks 116–125; evaluation B: 126–135.
+
+Each method uses its own calibration errors.
+Calibration weeks must strictly precede evaluation weeks.
+
+Selection uses waste_rate_with_terminal, subject to the agreed
+service floor in both development windows.
+Report expired waste and usable terminal stock separately,
+alongside both waste-rate and penalty measures.
+
+These are development comparisons, not untouched final-test results.
