@@ -5,43 +5,51 @@ Input: outputs/supervised_forecasts.csv (from scripts/evaluate_supervised.py).
 Evaluation windows: A = weeks 106-115, B = weeks 126-135. Weeks 136-145 are NOT used.
 Start stock 0. Shelf life 1 week (headline), with 0 and 2 weeks as sensitivity.
 
-To add Ari's rule (b): add an entry to RULES with signature (forecast, leftovers, context) -> int.
-Context contains the row (centre, meal, target_week, method, window, ...).
+Rule (b) uses the fast, exactly equivalent version of Ari's calibrated empirical rule
+(freshwise.fast_rules). Before simulating, it is checked against Ari's original rule
+(freshwise.preparation_rules) on 3,000 real evaluation rows; the script stops if any
+recommendation differs.
 
 Outputs (outputs/, not committed): carryover_rows.csv, carryover_summary.csv
 """
+import numpy as np
 import pandas as pd
 
 from freshwise.carryover import prepare_forecast_minus_leftovers, simulate_carryover, summarize
 from freshwise.empirical_calibration import build_ratio_lookup
+from freshwise.fast_rules import make_fast_calibrated_empirical_rule
 from freshwise.preparation_rules import make_calibrated_empirical_rule
 
 METHODS = ["last", "blend", "hgb"]
 SHELF_LIVES = [0, 1, 2]
+QUANTILES = {"b_empirical_q055": 0.55, "b_empirical_q5_over_7": 5 / 7}
+
 all_rows = pd.read_csv("outputs/supervised_forecasts.csv")
 all_rows = all_rows[all_rows["method"].isin(METHODS)].copy()
 
-ratio_lookup = build_ratio_lookup(
-    all_rows,
-    methods=METHODS,
-)
-
-RULES = {
-    "a_forecast_minus_leftovers": prepare_forecast_minus_leftovers,
-    "b_empirical_q055": make_calibrated_empirical_rule(
-        ratio_lookup, 0.55
-    ),
-    "b_empirical_q5_over_7": make_calibrated_empirical_rule(
-        ratio_lookup, 5 / 7
-    ),
-}
+ratio_lookup = build_ratio_lookup(all_rows, methods=METHODS)
 
 rows = all_rows[all_rows["role"] == "evaluation"].copy()
 assert rows.target_week.max() <= 135, "Final weeks must not be used here"
 
+RULES = {"a_forecast_minus_leftovers": prepare_forecast_minus_leftovers}
+rng = np.random.default_rng(0)
+check = rows.sample(3000, random_state=0).to_dict("records")
+for name, q in QUANTILES.items():
+    fast = make_fast_calibrated_empirical_rule(ratio_lookup, q)
+    slow = make_calibrated_empirical_rule(ratio_lookup, q)
+    for r in check:
+        leftovers = int(rng.integers(0, 300))
+        f = float(r["forecast_orders"])
+        if fast(f, leftovers, r) != slow(f, leftovers, r):
+            raise SystemExit(f"Fast rule differs from Ari's rule for {name}: {r}")
+    RULES[name] = fast
+print("Equivalence check passed: fast rule (b) == Ari's rule (b) on 3,000 real rows x 2 quantiles", flush=True)
+
 results = []
 for rule_name, fn in RULES.items():
     for life in SHELF_LIVES:
+        print(f"Simulating {rule_name}, shelf life {life} ...", flush=True)
         sim = simulate_carryover(rows, fn, shelf_life_weeks=life, start_stock=0)
         results.append(sim.assign(rule=rule_name, shelf_life_weeks=life))
 res = pd.concat(results, ignore_index=True)
@@ -62,9 +70,7 @@ for pop in ("demo meals", "all meals"):
                       values=["waste_rate", "waste_rate_with_terminal", "unmet_rate"]) * 100
     print(t.round(1))
 
-# Waste metric used for selection - TO CONFIRM BY THE TEAM BEFORE RUNNING.
-# "waste_rate_with_terminal" (conservative: end-of-horizon usable stock counted as waste)
-# or "waste_rate" (expired stock only). Both are always reported.
+# Agreed (6.2): selection on the conservative waste measure; both measures reported.
 SELECTION_WASTE = "waste_rate_with_terminal"
 
 # Selection rule (6.2): lowest waste with unmet not above the baseline
@@ -73,7 +79,7 @@ d = summary[summary.population == "demo meals"].set_index(["window", "method", "
 base = {w: d.loc[(w, "last", "a_forecast_minus_leftovers", 0), "unmet_rate"] for w in ("A", "B")}
 print(f"\nSELECTION (demo meals, shelf life 1 week, waste metric = {SELECTION_WASTE})")
 ok = []
-for (method, rule) in {(m, r) for _, m, r, _ in d.index}:
+for (method, rule) in sorted({(m, r) for _, m, r, _ in d.index}):
     a = d.loc[("A", method, rule, 1)]
     b = d.loc[("B", method, rule, 1)]
     qualifies = a.unmet_rate <= base["A"] and b.unmet_rate <= base["B"]
