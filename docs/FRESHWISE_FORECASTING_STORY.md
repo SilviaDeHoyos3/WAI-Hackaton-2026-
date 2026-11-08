@@ -1,7 +1,7 @@
 # FreshWise: agreed approach, story and work plan
 
 Owner: Silvia (forecasting) · Team: Ari (decisions), Lan (demo, submission)
-Status: Nov 5, 2026. **Approach agreed** (see §0). Development results only; weeks 136–145 are reserved for one final frozen run.
+Status: Nov 7, 2026. **Approach agreed** (§0). **Agreed comparison run on Nov 7** (§4.4); freeze proposal in §6.4. Development results only; weeks 136–145 are reserved for one final frozen run on Nov 9.
 Branch: `forecast-next-week` · PR #2 · Detailed numbers: `docs/FORECAST_FINDINGS_2026-11-05.md`
 
 ---
@@ -115,6 +115,52 @@ A second option, **sharing stock between centres in the same region**, cut waste
 - All results are simulated orders; `num_orders` is observed orders, not true demand.
 - No real-world waste reduction is claimed.
 
+### 4.4 Agreed comparison results (Nov 7, development windows)
+
+Run once with the rules agreed in §6.2: `scripts/evaluate_carryover.py` on `forecast-next-week` after merging PR #3 (86 tests passing). Start stock 0, shelf life 1 week (0 and 2 weeks as sensitivity), penalties 2 / 5. Window A = weeks 106–115, window B = weeks 126–135. Weeks 136–145 not used.
+
+**Demo meals (centre 13; meals 2306, 2444, 1198, 2664), shelf life 1 week**
+
+| Forecast + preparation rule | Waste A / B (incl. terminal) | Waste A / B (expired only) | Unmet A / B |
+|---|---|---|---|
+| **Today: `last`, prepare forecast, no carry-over** (baseline) | 20.9% / 14.4% | 20.9% / 14.4% | 24.7% / 14.8% |
+| `last` + rule (a) | 8.5% / 4.3% | 8.2% / 0.2% | 24.5% / 14.0% |
+| `last` + rule (b) q0.55 | 7.9% / 4.2% | 7.5% / 0.2% | 26.3% / 15.9% ❌ |
+| `last` + rule (b) q5/7 | 10.4% / 5.3% | 9.9% / 1.1% | 19.8% / 9.9% |
+| blend + rule (a) | 5.3% / 4.7% | 4.5% / 1.6% | 22.0% / 11.8% |
+| blend + rule (b) q0.55 | 5.0% / 4.5% | 4.2% / 1.5% | 22.9% / 13.9% |
+| blend + rule (b) q5/7 | 7.1% / 5.6% | 6.2% / 2.1% | 17.3% / 8.2% |
+| **`hgb` + rule (a) — WINNER** | **4.7% / 0.1%** | **4.6% / 0.0%** | **17.4% / 5.7%** |
+| `hgb` + rule (b) q0.55 | 5.4% / 0.2% | 5.2% / 0.0% | 14.2% / 3.6% |
+| `hgb` + rule (b) q5/7 | 8.4% / 1.5% | 6.6% / 1.1% | 8.2% / 1.6% |
+
+❌ = fails the service floor (unmet above today's baseline). Every other combination qualifies.
+
+**All meals (≈32,700 cases per window), shelf life 1 week**
+
+| Forecast + preparation rule | Waste A / B (incl. terminal) | Unmet A / B |
+|---|---|---|
+| Today: `last`, no carry-over | 21.9% / 22.5% | 21.1% / 22.8% |
+| `last` + rule (a) | 8.7% / 9.9% | 19.9% / 21.9% |
+| **`hgb` + rule (a)** | **3.8% / 2.8%** | **13.8% / 19.8%** |
+| `hgb` + rule (b) q0.55 | 4.8% / 3.3% | 10.9% / 16.3% |
+| `hgb` + rule (b) q5/7 | 7.4% / 4.9% | 6.0% / 10.7% |
+
+**Shelf-life sensitivity (`hgb` + rule (a), demo meals):** waste incl. terminal 13.2% / 14.3% with no carry-over, 4.7% / 0.1% with 1 week, 1.7% / 0.1% with 2 weeks. Unmet stays about the same (16.6–17.6% / 5.7–5.9%).
+
+**Reading**
+
+1. **Winner by the agreed rule:** `hgb` + "prepare forecast minus leftovers". It has the lowest conservative waste (below 5% in both windows) and fewer unmet orders than today.
+2. **All three `hgb` options beat today on both waste and service.** The combination of a better forecast and using leftovers first does the work.
+3. **Ari's rule (b) acts as a service dial.** q5/7 cuts unmet orders to 8.2% / 1.6% on the demo meals, at 8.4% / 1.5% waste. This is a natural manager choice to show in the demo, with the trade-off explained.
+4. **Limits:** development windows only; results depend on the one-week shelf-life assumption; unmet orders in window A are still 17.4% with the winner; all outcomes are simulated from observed orders.
+
+**Run log (for transparency)**
+
+- On Nov 7 the comparison was first run accidentally **before PR #3 was merged**, so it included rule (a) only. Rule (a) is deterministic, and its numbers are identical to the full run and to the exploratory figures already reported on Nov 5, so no new information was used.
+- The first full run with Ari's original rule (b) ran for about 7 hours without finishing and was stopped with Ctrl+C before printing or saving any result.
+- The full run used `src/freshwise/fast_rules.py`, which computes the same inverted-CDF quantile once per (method, window, size group, quantile). Before simulating, the script checks it against Ari's original rule on 3,000 real evaluation rows × 2 quantiles and stops on any difference; `tests/test_fast_rules.py` checks it too. Ari's original functions are unchanged.
+
 ---
 
 ## 5. How this fits with Ari's flexible-preparation proposal
@@ -162,9 +208,10 @@ simulate_carryover(rows, prepare_fn, shelf_life_weeks=1, start_stock=0)
 
 - `rows`: keyed forecast rows (`center_id, meal_id, target_week, history_end_week, forecast_orders, method, actual_orders`), from Silvia.
 - `prepare_fn(forecast, leftovers, context) -> int`: the preparation rule. Rule (a) is `max(0, ceil(forecast - leftovers))`; rule (b) wraps Ari's `recommend_empirical_preparation` with `inventory = leftovers`.
-- Stock rules: FIFO; leftovers older than `shelf_life_weeks` become waste; leftovers are dropped if the next week has no observed row; start stock 0.
-- Output per row: `leftovers_in, prepared, supply, sold, unmet, expired` (expired = waste), plus totals per window, per meal and per week.
-- Metrics: waste rate, unmet rate, penalty (overage 2, underage 5).
+- Stock rules: FIFO; stock ages by the weeks until the next observed row, and stock older than `shelf_life_weeks` expires; start stock 0.
+- End of horizon: stock is aged one more week; stock past its shelf life is `expired`, still-usable stock is reported separately as `terminal_stock`.
+- Output per row: `leftovers_in, prepared, supply, sold, unmet, expired, terminal_stock`, plus totals per window, per meal and per week.
+- Metrics: `waste_rate` (expired / prepared), `waste_rate_with_terminal` (conservative), unmet rate, `penalty` and `penalty_with_terminal` (overage 2, underage 5).
 
 ### 6.2 Selection rule (agreed Nov 6, before running)
 
@@ -183,7 +230,7 @@ Agreed details (Silvia and Ari, Nov 6):
 |---|---|---|---|
 | **Nov 6** | Build `src/freshwise/carryover.py` (`simulate_carryover`) + tests; `scripts/evaluate_carryover.py` producing keyed rows and metrics for `last`, blend, `hgb` with rule (a). Add `method="hgb"` to `forecast_rows`; recalibrate the range on `hgb` errors; add `scikit-learn` to `pyproject.toml` | Review and merge PR #2. Wrap `empirical.py` as rule (b) for `prepare_fn`. Confirm the stock assumptions (start 0, 1-week shelf life, FIFO, penalties 2/5) | Check official rules and formats. Draft the demo screen for meal 1198: forecast → stock → recommendation → manager adjustment → explanation |
 | **Nov 6 (evening)** | ✅ Selection rule, waste measures and quantiles agreed (§6.2). Terminal stock reported separately (done) | Implementing the calibration lookup + rule (b) adapter; not running | ← |
-| **Nov 7** | Run the comparison **once** (rules a and b, all forecasts, both windows); share the table | Review the results and the rule (b) behaviour per meal | Plug the real functions into the screen (no numbers computed in the UI) |
+| **Nov 7** | ✅ Comparison run once (rules a and b, all forecasts, both windows); results in §4.4 | Review the results and the rule (b) behaviour per meal | Plug the real functions into the screen (no numbers computed in the UI) |
 | **Nov 7** | **Freeze together:** forecast, shelf life, rule, assumptions, metrics | ← same | ← same |
 | **Nov 8** | Buffer / fix broken paths only. Optional: data-informed demand scenarios (total volume vs menu mix) for Ari's extension | Optional: minimal flexible-preparation demo (two meals, one shared base), labelled synthetic | Assistant explanation text that calls tools; label observed vs simulated vs synthetic |
 | **Nov 9** | Run weeks 136–145 **once** with the frozen setup; save all rows | Check the final decision numbers | Insert final numbers into slides |
@@ -191,13 +238,25 @@ Agreed details (Silvia and Ari, Nov 6):
 | **Nov 11** | Approve forecasting claims | Approve decision claims | Submit; save the receipt |
 | **Nov 12** | Buffer: submission blockers only | ← same | ← same |
 
-### 6.4 Still open (decide by Nov 6 evening)
+### 6.4 Freeze proposal and open points
 
 1. Are FreshWise meals storable for one extra week (frozen, kits, prepped ingredients)? This must be stated as the core assumption.
 2. Shelf life: 1 week as the headline, with 0 and 2 weeks as a sensitivity check? (The script already reports all three.)
 3. Does Ari's flexible-preparation extension go into the demo, or stay as future work?
+4. Starting stock 0 with carried leftovers, replacing the fixed 40 portions. Confirm.
 
 Decided: selection metric, waste measures, rule (b) quantiles and calibration inputs (§6.2).
+
+**Freeze proposal (Nov 7, for team approval):**
+
+| Item | Proposed frozen value |
+|---|---|
+| Forecast | `hgb` (prices and promotions assumed known at planning time); `last` kept as baseline |
+| Stock | Start 0; leftovers used first (FIFO); shelf life 1 week |
+| Default preparation rule | (a) prepare forecast minus leftovers (winner, §4.4) |
+| Manager option in the demo | Ari's rule (b) q5/7 as "fewer shortages" setting, with its waste trade-off shown |
+| Metrics | Waste incl. terminal (headline), waste expired-only, unmet rate, penalties 2 / 5; demo meals and all meals |
+| Final test | Weeks 136–145, run once on Nov 9 with exactly this setup |
 
 ### 6.5 Rules for working together
 
