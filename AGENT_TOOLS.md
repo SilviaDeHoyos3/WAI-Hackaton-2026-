@@ -42,9 +42,6 @@ comparison. Do not claim it improves accuracy or reduces waste.
 These tools do not return expected waste or shortages.
 The assistant must not invent those quantities.
 
-Status: decision functions implemented; AI connection not yet implemented.
-The empirical policy is supported, but the final policy is still pending
-the agreed comparison. Do not silently use it if another policy is selected.
 
 ## Python functions
 
