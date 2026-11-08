@@ -1,5 +1,47 @@
 # FreshWise decision tools — integration contract
 
+## Default-policy update — November 8
+
+This section supersedes earlier statements that the final policy is pending
+or that the tools support only the empirical policy.
+
+The development comparison selected:
+HGB forecast + forecast minus usable stock, with one-extra-week shelf life.
+Final evaluation and team freeze confirmation remain separate steps.
+
+### Default mode
+Call:
+central_preparation_recommendation(forecast, usable_stock)
+
+For an explicit manager adjustment, call:
+manager_adjusted_central_recommendation(
+    forecast, usable_stock, manager_estimate, opinion_weight
+)
+
+The reference is the original forecast.
+No anchor selection or empirical calibration ratios are needed.
+Keep original forecast, manager estimate and adjusted target distinct.
+
+### Optional fewer-shortages mode
+Call:
+preparation_recommendation(
+    forecast, usable_stock, error_ratios, quantile
+)
+
+The application supplies matching calibration ratios and quantile = 5/7.
+This option may prepare more food and increase waste.
+It does not guarantee fewer shortages in every individual case.
+
+The existing manager_adjusted_recommendation function remains available
+for the empirical mode, with its explicit low/central/high anchor.
+Do not mix its anchor semantics with the default central adjustment.
+
+### Evidence limits
+The manager-adjustment mechanism was not evaluated in the frozen-policy
+comparison. Do not claim it improves accuracy or reduces waste.
+These tools do not return expected waste or shortages.
+The assistant must not invent those quantities.
+
 Status: decision functions implemented; AI connection not yet implemented.
 The empirical policy is supported, but the final policy is still pending
 the agreed comparison. Do not silently use it if another policy is selected.

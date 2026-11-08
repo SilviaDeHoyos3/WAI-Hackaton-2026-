@@ -1,5 +1,26 @@
 # FreshWise assistant — acceptance checks
 
+## Default-mode update — November 8
+
+Run cases 1–5 in central mode:
+- Use central_preparation_recommendation for the initial plan.
+- Use manager_adjusted_central_recommendation for manager context.
+- Forecast remains 100; stock remains 20 unless stated otherwise.
+- Expected preparation remains 80, or 90 after the example adjustment.
+- Quantile and calibration ratios are not inputs to the central tool.
+
+In case 4, ask for the manager estimate and opinion weight.
+Anchor selection is required only in empirical mode.
+
+Also test an explicit request for "fewer shortages":
+the application must use the empirical tool with configured quantile 5/7,
+explain the waste trade-off, and identify the policy used.
+With ratios [0.8, 1.0, 1.2], forecast 100 and stock 20,
+the expected recommendation is 100 new portions.
+
+These app-level checks must be rerun after changing the default policy.
+Earlier synthetic UI checks do not establish that this update works.
+
 Status: proposed end-to-end checks, not yet executed.
 All numbers below are synthetic test fixtures, not project results.
 

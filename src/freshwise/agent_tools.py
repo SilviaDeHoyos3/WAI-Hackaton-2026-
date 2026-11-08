@@ -111,3 +111,71 @@ def manager_adjusted_recommendation(
             "clip negative demand at zero."
         ),
     }
+
+def central_preparation_recommendation(forecast, usable_stock):
+    from .decision import recommend_preparation
+
+    prepared = recommend_preparation(forecast, usable_stock)
+
+    return {
+        "forecast_orders": float(forecast),
+        "usable_stock": int(usable_stock),
+        "new_portions_to_prepare": prepared,
+        "total_available": int(usable_stock) + prepared,
+        "target_supply": float(forecast),
+        "policy": "central_forecast_minus_usable_stock",
+        "manager_adjustment_applied": False,
+        "assumptions": [
+            "One order is treated as one portion.",
+            "Usable stock has already been checked for expiry.",
+            "The forecast is supplied by the application.",
+        ],
+    }
+
+def manager_adjusted_central_recommendation(
+    forecast,
+    usable_stock,
+    manager_estimate,
+    opinion_weight,
+):
+    from .decision import _validate_nonnegative_number
+
+    original = central_preparation_recommendation(
+        forecast, usable_stock
+    )
+
+    _validate_nonnegative_number(
+        manager_estimate, "Manager estimate"
+    )
+    _validate_nonnegative_number(
+        opinion_weight, "Opinion weight"
+    )
+    if opinion_weight > 1:
+        raise ValueError("Opinion weight must be between 0 and 1.")
+
+    target = (
+        (1 - float(opinion_weight)) * float(forecast)
+        + float(opinion_weight) * float(manager_estimate)
+    )
+
+    adjusted = central_preparation_recommendation(
+        target, usable_stock
+    )
+    adjusted["forecast_orders"] = float(forecast)
+    adjusted["manager_adjustment_applied"] = True
+
+    return {
+        "original_plan": original,
+        "adjusted_plan": adjusted,
+        "manager_context": {
+            "anchor": "central_forecast",
+            "anchor_value": float(forecast),
+            "manager_estimate": float(manager_estimate),
+            "opinion_weight": float(opinion_weight),
+            "demand_shift": target - float(forecast),
+        },
+        "adjustment_method": (
+            "Blend the original forecast with the manager estimate "
+            "using the explicit opinion weight, then subtract usable stock."
+        ),
+    }
