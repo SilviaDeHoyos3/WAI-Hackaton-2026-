@@ -88,9 +88,17 @@ def forecast_rows(train, history_end_week, pairs=DEMO_PAIRS, method=METHOD):
     )
     table = RANGE_TABLES.get(method, RANGE_TABLES["last"])
     source = RANGE_SOURCE if method in RANGE_TABLES else RANGE_SOURCE + "_borrowed_from_last"
+    out = apply_range(rows, table).assign(range_source=source)
+    fallback = (out["method"] != method).to_numpy()
+    if method == "hgb" and fallback.any():
+        # rows forecast with a fallback get the range calibrated for `last`, labelled as such
+        fb = apply_range(rows[fallback], RANGE_TABLES["last"])
+        for col in ("volume_tier", "scenario_low", "scenario_high"):
+            out.loc[fallback, col] = fb[col].to_numpy()
+        out.loc[fallback, "range_source"] = RANGE_SOURCE + "_last_errors"
     if history_end_week + 1 <= CALIBRATION_LAST_WEEK:
-        source = "in_sample_calibration_overlap"
-    return apply_range(rows, table).assign(range_source=source)
+        out["range_source"] = "in_sample_calibration_overlap"
+    return out
 
 
 def rolling_forecasts(train, first_target, last_target, method=METHOD, pairs=None):
