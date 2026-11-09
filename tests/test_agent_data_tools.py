@@ -66,6 +66,25 @@ class ForecastToolTests(unittest.TestCase):
         self.assertEqual(len(f["recent_orders"]), 4)
         json.dumps(f)
 
+    def test_unrounded_for_calculation_rounded_for_display(self):
+        from freshwise.next_week import forecast_rows
+        f = forecast_tool(1, 10, self.ctx)
+        rows = self.ctx._cache[(1, 30, "hgb")]
+        exact = float(rows.loc[rows.meal_id == 10, "forecast_orders"].iloc[0])
+        self.assertEqual(f["forecast_orders"], exact)
+        self.assertEqual(f["forecast_orders_display"], round(exact, 1))
+        self.assertFalse(f["is_fallback"])
+        self.assertIn("hgb model refit", f["provenance"])
+
+    def test_fallback_provenance_names_the_method_used(self):
+        train, test, meals, centers = tables()
+        test = test[~((test.center_id == 1) & (test.meal_id == 11))]  # no planning row for this meal
+        f = forecast_tool(1, 11, context_from_tables(train, test, meals, centers))
+        self.assertEqual(f["method"], "fallback_last_no_planning_row")
+        self.assertTrue(f["is_fallback"])
+        self.assertIn("Fallback", f["provenance"])
+        self.assertNotIn("hgb model refit", f["provenance"])
+
     def test_meal_not_on_menu_returns_error(self):
         self.assertIn("error", forecast_tool(2, 12, self.ctx))
 
