@@ -21,6 +21,7 @@ def run():
     }
     for case_id in range(1, 6):
         app = AppTest.from_file(str(root / "app.py"), default_timeout=10).run()
+        app.radio(key="data_mode").set_value("Acceptance examples").run()
         options = app.selectbox(key="case").options
         case = options[case_id - 1]
         app.selectbox(key="case").select(case).run()
@@ -32,6 +33,7 @@ def run():
                         "reason": "Expected values/status verified in AppTest; actual teammate tool invoked where required.",
                         "llm_conversation_check": "NOT RUN — no model connected"})
     app = AppTest.from_file(str(root / "app.py")).run()
+    app.radio(key="data_mode").set_value("Acceptance examples").run()
     app.selectbox(key="case").select(app.selectbox(key="case").options[5]).run()
     response = app.session_state["current_response"]
     assert not app.exception
@@ -41,6 +43,7 @@ def run():
     records.append({"case":"6. Fewer shortages", "response":response,"ui_tool_check":"PASS", "llm_conversation_check":"NOT RUN"})
     # A real UI invalidation check after a valid recommendation.
     app = AppTest.from_file(str(root / "app.py")).run()
+    app.radio(key="data_mode").set_value("Acceptance examples").run()
     app.number_input(key="stock_1").set_value(-1).run()
     assert app.session_state["current_response"]["status"] == "error"
     assert len(app.metric) == 0
