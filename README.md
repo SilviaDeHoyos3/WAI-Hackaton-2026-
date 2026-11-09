@@ -1,3 +1,12 @@
+# FreshWise — Lan interface integration
+
+Start with [LAN_START_HERE.md](LAN_START_HERE.md) for the current manager interface,
+setup and checks. It connects real forecast and decision tools; no AI model is
+connected. Interface/integration: Lan; forecasting: Silvia; decisions: Ari.
+Review branch: `lan/ai-assistant-integration`. See LAN_START_HERE.md for launch instructions.
+
+---
+
 # FreshWise
 
 Weekly prepared-meal order forecasting, followed by explicitly simulated inventory decisions.
