@@ -22,6 +22,17 @@ from .data import enrich, load_data
 from .next_week import forecast_rows
 
 DEFAULT_METHOD = "hgb"
+PROVENANCE = {
+    "hgb": "hgb model refit on all observed weeks <= history_end_week; target-week prices and "
+           "promotions from the planning row; range from hgb's own errors (weeks 116-125).",
+    "last": "Last observed weekly orders for this centre-meal pair; range from last's errors (weeks 116-125).",
+    "trailing4": "Mean of the last four observed weeks for this pair; range borrowed from last's errors.",
+    "fallback_last_no_planning_row": "Fallback: no planning row (prices/promotions) for the target week, "
+                                     "so last observed orders were used; range from last's errors (weeks 116-125).",
+    "fallback_recent_meal_or_global_mean": "Fallback: no history for this centre-meal pair, so the recent "
+                                           "meal mean (or global mean) was used; range from last's errors.",
+}
+
 ASSUMPTIONS = [
     "Forecasts are observed weekly orders, not guaranteed demand.",
     "The range is model uncertainty only (about 80% of past outcomes fell inside it); "
@@ -112,19 +123,28 @@ def forecast_tool(center_id, meal_id, context, history_end_week=None, method=DEF
     r = row.iloc[0]
     obs = _observed(context, h)
     recent = obs[(obs["center_id"] == center_id) & (obs["meal_id"] == meal_id)].sort_values("week").tail(4)
+    used = str(r["method"])
+    forecast, low, high = float(r["forecast_orders"]), float(r["scenario_low"]), float(r["scenario_high"])
     return {
         "center_id": int(center_id),
         "meal_id": int(meal_id),
         "target_week": int(r["target_week"]),
         "history_end_week": int(r["history_end_week"]),
-        "forecast_orders": round(float(r["forecast_orders"]), 1),
-        "range_low": round(float(r["scenario_low"]), 1),
-        "range_high": round(float(r["scenario_high"]), 1),
-        "method": str(r["method"]),
+        # Unrounded values: pass these to the decision tools.
+        "forecast_orders": forecast,
+        "range_low": low,
+        "range_high": high,
+        # Rounded values: for display only, never for calculations.
+        "forecast_orders_display": round(forecast, 1),
+        "range_low_display": round(low, 1),
+        "range_high_display": round(high, 1),
+        "method_requested": method,
+        "method": used,
+        "is_fallback": used != method,
         "range_source": str(r["range_source"]),
         "recent_orders": [{"week": int(w), "orders": int(o)}
                           for w, o in zip(recent["week"], recent["num_orders"])],
-        "provenance": "freshwise.next_week.forecast_rows; hgb model refit on all weeks <= history_end_week",
+        "provenance": PROVENANCE.get(used, f"Method: {used}."),
         "assumptions": ASSUMPTIONS,
     }
 
