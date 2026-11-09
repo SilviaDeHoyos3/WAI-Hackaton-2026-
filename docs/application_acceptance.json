@@ -1,0 +1,222 @@
+{
+  "executed_at_utc": "2026-11-09T21:54:40.944300+00:00",
+  "source_commit": "525a9a8b501169daa8a2c785b03edd135e98cf09",
+  "scope": "Scripted UI plus real Python tools; not end-to-end AI acceptance",
+  "cases": [
+    {
+      "case": "1. Normal recommendation",
+      "user_message": "How many new portions should I prepare?",
+      "response": {
+        "status": "success",
+        "missing": [],
+        "context_key": "acceptance-fixture",
+        "context_source": "Synthetic acceptance fixture; not project calibration",
+        "forecast_record": null,
+        "tool_call": {
+          "name": "central_preparation_recommendation",
+          "manager_arguments": {
+            "usable_stock": 20
+          },
+          "application_arguments": {
+            "forecast": 100.0
+          }
+        },
+        "result": {
+          "forecast_orders": 100.0,
+          "usable_stock": 20,
+          "new_portions_to_prepare": 80,
+          "total_available": 100,
+          "target_supply": 100.0,
+          "policy": "central_forecast_minus_usable_stock",
+          "manager_adjustment_applied": false,
+          "assumptions": [
+            "One order is treated as one portion.",
+            "Usable stock has already been checked for expiry.",
+            "The forecast is supplied by the application."
+          ]
+        },
+        "answer": "Prepare 80 new portions. Usable stock: 20; total available: 100 portions. Policy target: 100, not guaranteed demand."
+      },
+      "ui_tool_check": "PASS",
+      "reason": "Expected values/status verified in AppTest; actual teammate tool invoked where required.",
+      "llm_conversation_check": "NOT RUN \u2014 no model connected"
+    },
+    {
+      "case": "2. Manager adjustment",
+      "user_message": "I expect 140 orders because of an event. Give my estimate a weight of 25%.",
+      "response": {
+        "status": "success",
+        "missing": [],
+        "context_key": "acceptance-fixture",
+        "context_source": "Synthetic acceptance fixture; not project calibration",
+        "forecast_record": null,
+        "tool_call": {
+          "name": "manager_adjusted_central_recommendation",
+          "manager_arguments": {
+            "usable_stock": 20,
+            "manager_estimate": 140.0,
+            "opinion_weight": 0.25
+          },
+          "application_arguments": {
+            "forecast": 100.0
+          }
+        },
+        "result": {
+          "original_plan": {
+            "forecast_orders": 100.0,
+            "usable_stock": 20,
+            "new_portions_to_prepare": 80,
+            "total_available": 100,
+            "target_supply": 100.0,
+            "policy": "central_forecast_minus_usable_stock",
+            "manager_adjustment_applied": false,
+            "assumptions": [
+              "One order is treated as one portion.",
+              "Usable stock has already been checked for expiry.",
+              "The forecast is supplied by the application."
+            ]
+          },
+          "adjusted_plan": {
+            "forecast_orders": 100.0,
+            "usable_stock": 20,
+            "new_portions_to_prepare": 90,
+            "total_available": 110,
+            "target_supply": 110.0,
+            "policy": "central_forecast_minus_usable_stock",
+            "manager_adjustment_applied": true,
+            "assumptions": [
+              "One order is treated as one portion.",
+              "Usable stock has already been checked for expiry.",
+              "The forecast is supplied by the application."
+            ]
+          },
+          "manager_context": {
+            "anchor": "central_forecast",
+            "anchor_value": 100.0,
+            "manager_estimate": 140.0,
+            "opinion_weight": 0.25,
+            "demand_shift": 10.0
+          },
+          "adjustment_method": "Blend the original forecast with the manager estimate using the explicit opinion weight, then subtract usable stock."
+        },
+        "answer": "Original forecast: 100 orders. Manager estimate: 140; weight: 25%. Target change: +10 orders. Original preparation: 80 portions; adjusted preparation: 90 portions. Manager adjustments were not part of the evaluated policy results."
+      },
+      "ui_tool_check": "PASS",
+      "reason": "Expected values/status verified in AppTest; actual teammate tool invoked where required.",
+      "llm_conversation_check": "NOT RUN \u2014 no model connected"
+    },
+    {
+      "case": "3. Enough stock",
+      "user_message": "How many new portions should I prepare?",
+      "response": {
+        "status": "success",
+        "missing": [],
+        "context_key": "acceptance-fixture",
+        "context_source": "Synthetic acceptance fixture; not project calibration",
+        "forecast_record": null,
+        "tool_call": {
+          "name": "central_preparation_recommendation",
+          "manager_arguments": {
+            "usable_stock": 150
+          },
+          "application_arguments": {
+            "forecast": 100.0
+          }
+        },
+        "result": {
+          "forecast_orders": 100.0,
+          "usable_stock": 150,
+          "new_portions_to_prepare": 0,
+          "total_available": 150,
+          "target_supply": 100.0,
+          "policy": "central_forecast_minus_usable_stock",
+          "manager_adjustment_applied": false,
+          "assumptions": [
+            "One order is treated as one portion.",
+            "Usable stock has already been checked for expiry.",
+            "The forecast is supplied by the application."
+          ]
+        },
+        "answer": "Prepare 0 new portions. Usable stock: 150; total available: 150 portions. Policy target: 100, not guaranteed demand."
+      },
+      "ui_tool_check": "PASS",
+      "reason": "Expected values/status verified in AppTest; actual teammate tool invoked where required.",
+      "llm_conversation_check": "NOT RUN \u2014 no model connected"
+    },
+    {
+      "case": "4. Missing adjustment inputs",
+      "user_message": "There is an event. Increase the plan.",
+      "response": {
+        "status": "needs_input",
+        "missing": [
+          "manager_estimate",
+          "opinion_weight"
+        ],
+        "tool_call": null,
+        "result": null,
+        "answer": "Please provide: manager_estimate, opinion_weight."
+      },
+      "ui_tool_check": "PASS",
+      "reason": "Expected values/status verified in AppTest; actual teammate tool invoked where required.",
+      "llm_conversation_check": "NOT RUN \u2014 no model connected"
+    },
+    {
+      "case": "5. Impossible guarantee",
+      "user_message": "Guarantee no waste and no unserved customers.",
+      "response": {
+        "status": "cannot_guarantee",
+        "tool_call": null,
+        "result": null,
+        "answer": "Uncertain demand prevents a guarantee of both zero waste and zero unmet orders. I can calculate a plan using explicit stock and policy assumptions instead."
+      },
+      "ui_tool_check": "PASS",
+      "reason": "Expected values/status verified in AppTest; actual teammate tool invoked where required.",
+      "llm_conversation_check": "NOT RUN \u2014 no model connected"
+    },
+    {
+      "case": "6. Fewer shortages",
+      "response": {
+        "status": "success",
+        "missing": [],
+        "context_key": "acceptance-fixture",
+        "context_source": "Synthetic acceptance fixture; not project calibration",
+        "forecast_record": null,
+        "tool_call": {
+          "name": "preparation_recommendation",
+          "manager_arguments": {
+            "usable_stock": 20
+          },
+          "application_arguments": {
+            "forecast": 100.0,
+            "error_ratios": [
+              0.8,
+              1.0,
+              1.2
+            ],
+            "quantile": 0.7142857142857143
+          }
+        },
+        "result": {
+          "forecast_orders": 100.0,
+          "usable_stock": 20,
+          "new_portions_to_prepare": 100,
+          "total_available": 120,
+          "target_supply": 120.0,
+          "quantile": 0.7142857142857143,
+          "calibration_sample_count": 3,
+          "policy": "empirical_quantile",
+          "manager_adjustment_applied": false,
+          "assumptions": [
+            "One order is treated as one portion.",
+            "Usable stock has already been checked for expiry.",
+            "Calibration inputs and policy settings are supplied by the application."
+          ]
+        },
+        "answer": "Prepare 100 new portions. Usable stock: 20; total available: 120 portions. Policy target: 120, not guaranteed demand. Fewer-shortages policy (q=5/7) may increase excess preparation and waste."
+      },
+      "ui_tool_check": "PASS",
+      "llm_conversation_check": "NOT RUN"
+    }
+  ],
+  "stale_result_checks": "PASS"
+}

@@ -1,0 +1,10 @@
+{
+  "ari_commit": "525a9a8b501169daa8a2c785b03edd135e98cf09",
+  "forecast_commit": "b16d4517055027e4034970830b3dea4495198ed1",
+  "shared_file_sha256": {
+    "src/freshwise/agent_tools.py": "1ffa338552e14dcf640592d313a39f083782a4f50845be78247f4fd3d1be3b55",
+    "src/freshwise/agent_data_tools.py": "caa5ac475c78967f351c84041dbbf494141ec1dfdffcacdc63209e5789db19f9",
+    "src/freshwise/next_week.py": "8c6f2571d851ef0c7f0c0a1cef6fc8da6503f2c4e14102ec3e5b676a6bf05dbb",
+    "src/freshwise/supervised.py": "080d8045694ac61798b2fe5cc864a87e4d614992f22aac4b3a7b7e5a73146ade"
+  }
+}
