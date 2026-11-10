@@ -1,5 +1,5 @@
 {
-  "executed_at_utc": "2026-11-09T22:39:10.590761+00:00",
+  "executed_at_utc": "2026-11-10T06:21:57.659343+00:00",
   "scope": "Real data and tools in Streamlit; no LLM; no evaluation run",
   "forecast": {
     "center_id": 13,
@@ -213,10 +213,10 @@
   "missing_stock_and_adjustment_inputs": "PASS",
   "meal_change_invalidates_plan": "PASS",
   "runtime": {
-    "python": "3.12.14",
+    "python": "3.12.16",
     "packages": {
-      "numpy": "2.3.5",
-      "pandas": "2.2.3",
+      "numpy": "2.5.4",
+      "pandas": "3.1.0",
       "scikit-learn": "1.9.1",
       "scipy": "1.18.1",
       "streamlit": "1.66.1"
@@ -227,5 +227,10 @@
     "test.csv": "71a929bf2f043bf98748acb9d274258fe4c68c19592be1e26aca7dc1f1c8eda5",
     "meal_info.csv": "9d8045af391c492f531c928d7f3d58581c80d0594776d1f4e53c8b29bbff8f75",
     "fulfilment_center_info.csv": "c874f74fa392b2c4dd24a167f32a5bee68a444b8bf151acf295cd5d66aa0517f"
+  },
+  "forecast_source_sha256": {
+    "agent_data_tools.py": "caa5ac475c78967f351c84041dbbf494141ec1dfdffcacdc63209e5789db19f9",
+    "next_week.py": "8c6f2571d851ef0c7f0c0a1cef6fc8da6503f2c4e14102ec3e5b676a6bf05dbb",
+    "supervised.py": "080d8045694ac61798b2fe5cc864a87e4d614992f22aac4b3a7b7e5a73146ade"
   }
 }
