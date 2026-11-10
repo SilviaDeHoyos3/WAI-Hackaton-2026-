@@ -1,3 +1,33 @@
+## Kitchen-pass update and aligned runtime
+
+The prep ticket shows existing ready-to-use stock alongside new preparation, with
+an explicit manager-adjustment delta. Both original logos are included. The relay
+is a labelled synthetic two-week example calculated by the shared simulator.
+The plate grids use the final simulation percentages **reported by Silvia in the
+group update**, with the all-meal service deterioration shown separately. The full
+final-run tables/manifest have not been independently imported or verified here.
+
+Use Python **3.12.16** and install the recorded numerical versions in a fresh env:
+
+```sh
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-demo-repro.txt
+export FRESHWISE_DATA_DIR='/absolute/path/to/Data'
+python -m streamlit run app.py --server.port 8502
+```
+
+Check `python --version` first: `python3.12` may point to another patch release.
+The pins are NumPy 2.5.4, pandas 3.1.0, scikit-learn 1.9.1 (UI: Streamlit 1.66.1).
+Do not rerun the frozen final-evaluation script to test the interface.
+
+Local reproduction with those four versions still returned **453.15969951433823**
+for centre 13 / meal 1198 / week 146. Therefore version alignment alone did not
+reproduce Silvia's 455.0 example. The reported difference is about 0.4% for this
+case, not a universal bound. Source revision, data hashes and other dependencies
+also matter. See `docs/RUNTIME_REPRODUCTION.md` and the trace for the unresolved
+comparison. The exact forecast from the same tool call always feeds the decision.
+
 # FreshWise — Lan interface integration
 
 Start with [LAN_START_HERE.md](LAN_START_HERE.md) for the current manager interface,

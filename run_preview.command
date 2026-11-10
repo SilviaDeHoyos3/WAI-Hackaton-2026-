@@ -1,7 +1,9 @@
 #!/bin/zsh
 set -eu
 cd "$(dirname "$0")"
-if [[ -x .venv/bin/python ]]; then
+if [[ -x .venv-repro/bin/python ]]; then
+  preview_python=.venv-repro/bin/python
+elif [[ -x .venv/bin/python ]]; then
   preview_python=.venv/bin/python
 elif [[ -x ../WAI-Hackaton-2026--main/.venv/bin/python ]]; then
   preview_python=../WAI-Hackaton-2026--main/.venv/bin/python
