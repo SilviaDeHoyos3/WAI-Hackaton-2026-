@@ -1,0 +1,2 @@
+.[demo]
+-r requirements-demo-repro.txt

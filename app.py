@@ -20,6 +20,7 @@ from freshwise.local_credentials import normalize_gemini_key, read_gemini_key, s
 from freshwise.next_week import RANGE_SOURCE
 from freshwise.application_tools import (
     DATA_FILES,
+    PlanningContext,
     context_for_meal,
     get_context,
     invoke,
@@ -31,6 +32,16 @@ from freshwise.application_tools import (
 CENTRAL = "central_preparation_recommendation"
 ADJUSTED = "manager_adjusted_central_recommendation"
 EMPIRICAL = "preparation_recommendation"
+PUBLIC_DEMO = os.getenv("FRESHWISE_PUBLIC_DEMO") == "1"
+PUBLIC_FORECAST = {
+    "center_id": 13, "meal_id": 1198, "target_week": 146,
+    "forecast_orders": 453.15969951433823,
+    "range_low": 299.08540167946325, "range_high": 666.5979179855916,
+    "range_low_display": 299.1, "range_high_display": 666.6,
+    "method": "hgb", "is_fallback": False, "range_source": RANGE_SOURCE,
+    "provenance": "Precomputed FreshWise forecast for the hackathon demo case.",
+    "recent_orders": [],
+}
 ADJUSTMENTS = {"Small change": 0.25, "Meet halfway": 0.5, "Use my estimate": 1.0}
 IMPACT = {
     "Four demo meals": ((16.6, 1.5), (18.8, 7.2)),
@@ -276,16 +287,20 @@ def live_plan(mode):
     with st.container(border=True):
         st.markdown("**Choose your dish and count what’s ready**")
         try:
-            root = resolve_data_dir()
-            signature = tuple((name, (root / name).stat().st_size, (root / name).stat().st_mtime_ns)
-                              for name in DATA_FILES)
-            data = get_data(str(root), signature)
-            centres = sorted(int(c) for c in data.centers.center_id.unique())
+            if PUBLIC_DEMO:
+                centres = [13]
+                st.caption("Hackathon demo · One dish with a precomputed forecast")
+            else:
+                root = resolve_data_dir()
+                signature = tuple((name, (root / name).stat().st_size, (root / name).stat().st_mtime_ns)
+                                  for name in DATA_FILES)
+                data = get_data(str(root), signature)
+                centres = sorted(int(c) for c in data.centers.center_id.unique())
             left, middle, right = st.columns([1, 2, 2])
             center = left.selectbox("Kitchen location", centres,
                                     index=centres.index(13) if 13 in centres else 0, key="center",
                                     help="Choose the kitchen you’re planning for. In this demo, each kitchen is identified by a number.")
-            menu = menu_tool(center, data)
+            menu = {"meals": [{"meal_id": 1198, "category": "Extras", "cuisine": "Thai"}]} if PUBLIC_DEMO else menu_tool(center, data)
             if "error" in menu:
                 raise ValueError(menu["error"])
             meals = {r["meal_id"]: r for r in menu["meals"]}
@@ -295,8 +310,11 @@ def live_plan(mode):
             meal = middle.selectbox("Dish", options, index=options.index(1198) if 1198 in options else 0,
                 format_func=lambda m: f"{meals[m]['category']} · {meals[m]['cuisine']} (#{m})", key=f"meal_{center}",
                 help="Choose one dish to plan. In this demo, dishes are listed by category, cuisine and menu number.")
-            selected_history = (history_replay(data, center, meal), center, meal)
-            identity = (str(root), signature, center, meal)
+            if PUBLIC_DEMO:
+                identity = ("public-demo", center, meal)
+            else:
+                selected_history = (history_replay(data, center, meal), center, meal)
+                identity = (str(root), signature, center, meal)
             if st.session_state.get("loaded_identity") != identity:
                 st.session_state.pop("live_context", None)
                 st.session_state.pop("estimate", None)
@@ -306,7 +324,13 @@ def live_plan(mode):
                                        help="Count only whole portions of this dish that will still be safe to serve next week. Enter 0 if you have none.")
             if st.button("Make my prep plan", key="load_forecast", type="primary"):
                 with st.spinner("Working out next week’s prep…"):
-                    st.session_state["live_context"] = get_live_context(str(root), signature, center, meal)
+                    if PUBLIC_DEMO:
+                        st.session_state["live_context"] = PlanningContext(
+                            "public-demo/13/1198/146", PUBLIC_FORECAST["forecast_orders"],
+                            PUBLIC_FORECAST["provenance"], forecast_record=PUBLIC_FORECAST,
+                        )
+                    else:
+                        st.session_state["live_context"] = get_live_context(str(root), signature, center, meal)
                     st.session_state["loaded_identity"] = identity
             context = st.session_state.get("live_context")
             plan_identity = (identity, context.key if context else None, stock)
@@ -352,6 +376,8 @@ def live_plan(mode):
         if response is not base and response != applied and response["status"] == "success":
             preview = response["result"]["adjusted_plan"]
         scenarios = (plan, record, preview)
+    if PUBLIC_DEMO:
+        return scenarios, selected_history, context, identity
     with st.expander("Technical details"):
         if record:
             st.write(f"Forecast range: {record['range_low_display']}–{record['range_high_display']} orders.")
@@ -610,9 +636,11 @@ st.html(f'''
 prep, impact = st.tabs(["Prep plan", "Impact"])
 scenarios = selected_history = chat_context = chat_identity = None
 with prep:
-    with st.expander("Verification settings"):
-        mode = st.radio("Data mode", ["Acceptance examples", "Real next-week forecast"], index=1,
-                        horizontal=True, key="data_mode")
+    mode = "Real next-week forecast"
+    if not PUBLIC_DEMO:
+        with st.expander("Verification settings"):
+            mode = st.radio("Data mode", ["Acceptance examples", "Real next-week forecast"], index=1,
+                            horizontal=True, key="data_mode")
     st.session_state["current_response"] = None
     if mode == "Acceptance examples":
         acceptance_example(mode)
@@ -620,4 +648,5 @@ with prep:
         scenarios, selected_history, chat_context, chat_identity = live_plan(mode)
 with impact:
     impact_view(scenarios, selected_history)
-show_conversation(chat_context, chat_identity)
+if not PUBLIC_DEMO:
+    show_conversation(chat_context, chat_identity)

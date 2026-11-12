@@ -1,5 +1,21 @@
 # Lan — FreshWise interface and tool integration
 
+## Public hackathon deployment
+
+Deploy `app.py` from `ari/mockup-demo` with Python 3.12. In Streamlit
+Community Cloud, add the following top-level setting under **Secrets** before
+starting the app:
+
+```toml
+FRESHWISE_PUBLIC_DEMO = "1"
+```
+
+The public app uses the recorded forecast for centre 13, dish 1198, week 146.
+It runs the same preparation and adjustment tools without raw CSVs or Gemini.
+To check the deployment, enter 20 ready portions and make the plan. It should
+recommend 434 new portions. Preview 600 expected orders with **Small change**
+and check that the recommendation moves to 470.
+
 Updated November 9. Real teammate tools are connected using explicit controls
 and response templates. No language model, API key or paid API is used.
 
