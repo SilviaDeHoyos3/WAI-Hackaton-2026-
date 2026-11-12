@@ -1,17 +1,37 @@
-"""Lan's manager interface. Real teammate tools; no language model connected."""
+"""FreshWise preparation planner, using the team's forecast and decision tools."""
+import base64
+from html import escape
+import json
 from pathlib import Path
 import sys
-import json
-import base64
-import pandas as pd
-sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+
 import streamlit as st
 from threadpoolctl import threadpool_limits
-from freshwise.application_tools import (get_context, invoke, reject_guarantee,
-    load_application_data, resolve_data_dir, context_for_meal)
-from freshwise.agent_data_tools import menu_tool, evidence_tool
-from freshwise.carryover import simulate_carryover, prepare_forecast_minus_leftovers
 
+ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT / "src"))
+
+from freshwise.agent_data_tools import evidence_tool, menu_tool
+from freshwise.carryover import prepare_forecast_minus_leftovers, simulate_carryover
+from freshwise.next_week import RANGE_SOURCE
+from freshwise.application_tools import (
+    DATA_FILES,
+    context_for_meal,
+    get_context,
+    invoke,
+    load_application_data,
+    reject_guarantee,
+    resolve_data_dir,
+)
+
+CENTRAL = "central_preparation_recommendation"
+ADJUSTED = "manager_adjusted_central_recommendation"
+EMPIRICAL = "preparation_recommendation"
+ADJUSTMENTS = {"Small change": 0.25, "Meet halfway": 0.5, "Use my estimate": 1.0}
+IMPACT = {
+    "Four demo meals": ((16.6, 1.5), (18.8, 7.2)),
+    "All meals": ((17.9, 2.2), (16.7, 20.6)),
+}
 CASES = {
     "1. Normal recommendation": "How many new portions should I prepare?",
     "2. Manager adjustment": "I expect 140 orders because of an event. Give my estimate a weight of 25%.",
@@ -21,232 +41,487 @@ CASES = {
     "6. Fewer shortages (synthetic calibration)": "Use the fewer-shortages policy and explain its trade-off.",
 }
 
+
 @st.cache_resource(show_spinner=False)
 def get_data(path, signature):
     return load_application_data(path)
 
+
 @st.cache_data(show_spinner=False)
 def get_live_context(path, signature, center_id, meal_id):
-    # Avoid OpenMP oversubscription on laptops. Teammate model parameters are unchanged.
     with threadpool_limits(limits=1):
         return context_for_meal(center_id, meal_id, get_data(path, signature))
 
+
+@st.cache_data(show_spinner=False)
 def image_data(name):
-    raw = (Path(__file__).parent / "assets" / name).read_bytes()
+    raw = (ROOT / "assets" / name).read_bytes()
     return "data:image/png;base64," + base64.b64encode(raw).decode()
 
 
-def plates(rate, label):
-    # One hundred illustrative icons, rounded to a whole icon; the percentage stays exact.
-    count = int(rate + 0.5)
-    icons = "".join(f'<span class="plate {"waste" if i < count else "kept"}"></span>' for i in range(100))
-    return f'<div><div class="fw-tag">{label}</div><div class="plate-grid" role="img" aria-label="Approximately {count} of 100 plate icons highlighted">{icons}</div><p class="plate-rate">{rate:g}%</p></div>'
+def call_tool(tool, arguments, context):
+    try:
+        return invoke(tool, arguments, context=context)
+    except (TypeError, ValueError, OverflowError) as exc:
+        return {"status": "error", "tool_call": None, "result": None, "answer": str(exc)}
 
 
-st.set_page_config(page_title="FreshWise | Preparation planner", page_icon="🌱", layout="wide")
-st.html("""<style>
-.stApp {background:#FAF8F2;color:#203E32}
-.block-container {max-width:1120px;padding-top:4.5rem}
-h1,h2,h3 {color:#203E32}
-.stButton>button[kind="primary"] {background:#286249;border-color:#286249}
-.fw-brand {font-size:30px;font-weight:750;color:#286249;letter-spacing:-1px}
-.fw-brand span {color:#758B58}
-.fw-tag {font-size:12px;font-weight:650;letter-spacing:1.3px;text-transform:uppercase;color:#53715D;margin-bottom:14px}
-.fw-plan {background:#EAF0E4;border:1px solid #D5E0CB;border-radius:22px;padding:32px 36px;margin:18px 0 24px}
-.fw-plan h1 {font-size:clamp(30px,5vw,54px);line-height:1.14;margin:0 0 18px;letter-spacing:-1.5px}
-.fw-plan p {font-size:18px;line-height:1.6;margin:0;color:#3D5A49}
-.fw-plan .fw-note {font-size:14px;margin-top:14px}
-@media(max-width:600px){.fw-plan{padding:24px}.block-container{padding-top:4.5rem}}
+def show_trace(response, user_message, mode):
+    with st.expander("Verification prompts and exact tool trace"):
+        st.chat_message("user").write(user_message)
+        if response:
+            st.chat_message("assistant").write(response["answer"])
+            st.json(response)
+            st.download_button(
+                "Download current trace",
+                data=json.dumps({"user_message": user_message, "mode": mode,
+                                 "llm_connected": False, **response}, indent=2),
+                file_name="freshwise_plan.json",
+                mime="application/json",
+            )
 
-.fw-plan {background:#FFFDF7;border:1px solid #D7DDCE;border-top:7px solid #286249;box-shadow:0 9px 25px #203e3209}
-.ticket-top {display:flex;justify-content:space-between;gap:15px;border-bottom:1px dashed #B8C4B0;padding-bottom:12px;margin-bottom:18px}
-.ticket-top .fw-tag {margin:0}
-.ticket-trays,.plate-panels,.relay {display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px}
-.tray {border:2px solid #88A36B;border-radius:12px;background:#EFF3E8;padding:17px 20px;box-shadow:inset 0 0 0 5px #fff8}
-.tray.new {border-color:#D7B987;background:#FAF1E2}
-.tray b {display:block;font-size:34px;color:#203E32;line-height:1.25}
-.tray span {font-size:14px;color:#45614F}
-.first-tag {display:inline-block;background:#286249;color:white!important;border-radius:5px;padding:3px 8px;font-size:11px!important;margin-top:7px}
-.extra {display:inline-block;background:#E9D9B7;border-radius:7px;padding:7px 12px;font-weight:650;margin-top:12px}
-.plate-grid {display:grid;grid-template-columns:repeat(10,1fr);gap:5px;max-width:300px}
-.plate {display:block;aspect-ratio:1;border:2px solid #C3D1B8;border-radius:50%;background:#EEF3E7;box-shadow:inset 0 0 0 3px #FAF8F2}
-.plate.waste {background:#BD875C;border-color:#BD875C;box-shadow:inset 0 0 0 3px #F4E2D2}
-.plate-rate {font-size:26px;font-weight:700;color:#203E32;margin:8px 0}
-.relay-note {text-align:center;color:#286249;font-weight:650;margin:12px 0}
-.team-signature {display:flex;align-items:center;gap:10px;color:#58715C;font-size:12px;margin-top:30px}
-@media(max-width:600px){.ticket-trays,.relay{grid-template-columns:1fr}.tray b{font-size:30px}.plate-grid{gap:3px}}
-</style>""")
-st.html(f'<img src="{image_data("freshwise-logo.png")}" alt="FreshWise original logo" style="width:330px;max-width:100%;height:auto;border-radius:10px">')
-st.caption("Your kitchen pass · Use what is ready. Prepare what is next.")
-with st.expander("Demo and verification settings", expanded=False):
-    st.caption("Tool-connected prototype · Explicit inputs · No AI conversation connected")
-    mode = st.radio("Data mode", ["Acceptance examples", "Real next-week forecast"], index=1,
-                    horizontal=True, key="data_mode")
-hero = st.container()
-st.session_state["current_response"] = None
-context = None
-case_id = 1
-arguments = {}
-tool = "central_preparation_recommendation"
-user_message = "How many new portions should I prepare?"
-blocked = False
-if mode == "Acceptance examples":
+
+def info(label, explanation):
+    return (
+        f'<details class="inline-info"><summary aria-label="{escape(label)}">i</summary>'
+        f'<span>{escape(explanation)}</span></details>'
+    )
+
+
+def show_plan(plan, forecast, adjusted=False):
+    stock = plan["usable_stock"]
+    new = plan["new_portions_to_prepare"]
+    total = plan["total_available"]
+    stock_share = 100 * stock / total if total else 0
+    label = "Adjusted plan" if adjusted else "Current plan"
+    target = f" · Adjusted target: {plan['target_supply']:,.0f}" if adjusted else ""
+    st.html(f'''
+        <section class="ticket">
+          <span class="badge">{label}</span>
+          <div class="quantity">{new:,}</div>
+          <div class="info-heading"><h2>New portions to prepare</h2>
+            {info("About new portions", "How many more portions to make after counting the ones you already have.")}
+          </div>
+          <p>Use these first: <strong>{stock:,} ready portions</strong></p>
+          <div class="bar-labels"><span>{stock:,} ready portions</span><span>{new:,} new portions</span></div>
+          <div class="portion-bar" role="img" aria-label="{stock} ready and {new} new portions">
+            <span style="width:{stock_share:.8f}%"></span>
+            <span style="width:{100 - stock_share if total else 0:.8f}%"></span>
+          </div>
+          <div class="total">{total:,} total available after prep</div>
+          <div class="info-heading"><p class="subtle">Expected orders: about {forecast:,.0f}{target}</p>
+            {info("About expected orders", "FreshWise estimates next week’s orders from past orders and planned prices and promotions. An adjusted target includes your estimate.")}
+          </div>
+        </section>
+    ''')
+
+
+def show_adjustment(context, stock, base, identity):
+    st.html('<h2 class="adjustment-title">Expect a busier or quieter week?</h2>')
+    if not base or base["status"] != "success":
+        st.caption("Make your prep plan first. Then see how it changes with your own estimate.")
+        return base
+
+    estimate = st.number_input("How many orders do you expect?", min_value=0.0, value=None, step=1.0,
+                               key="estimate", placeholder="e.g. 600",
+                               help="Enter the total orders you expect for this dish next week. For example, enter 600 if a local event could bring more customers.")
+    choice = st.radio("How far should we move toward your estimate?", list(ADJUSTMENTS),
+                      horizontal=True, key="adjustment_choice",
+                      help="Small change moves the plan a quarter of the way toward your estimate. Meet halfway gives both estimates equal say. Use my estimate plans around your number.")
+    if estimate is None:
+        return base
+
+    draft = call_tool(ADJUSTED, {"usable_stock": stock, "manager_estimate": estimate,
+                                "opinion_weight": ADJUSTMENTS[choice]}, context)
+    if draft["status"] != "success":
+        st.error(draft["answer"])
+        return base
+
+    applied = st.session_state.get("applied_plan")
+    if applied == draft:
+        st.success("Adjustment applied to the prep plan.")
+        return draft
+    current = applied["result"]["adjusted_plan"] if applied else base["result"]
+    old = current["new_portions_to_prepare"]
+    new = draft["result"]["adjusted_plan"]["new_portions_to_prepare"]
+    delta = new - old
+    st.html(f'''
+        <div class="preview"><div class="info-heading"><span class="badge amber">Preview</span>
+          {info("About this preview", "The first number is your current prep plan. The second is the updated plan. Select Use this plan to apply the change.")}
+          </div>
+          <div class="preview-quantity">{old:,} → {new:,}</div>
+          <span class="badge amber">{delta:+,} portions</span>
+          <p>New portions to prepare</p>
+        </div>
+    ''')
+    if st.button("Use this plan", type="primary", width="stretch", key="apply_adjustment"):
+        st.session_state["applied_plan"] = draft
+        st.session_state["applied_identity"] = identity
+        st.rerun()
+    return draft
+
+
+def show_plan_outlook(plan, record, preview):
+    supply = plan["total_available"]
+    forecast = round(record["forecast_orders"])
+    low, high = round(record["range_low"]), round(record["range_high"])
+    likelihood = ""
+    if record["range_source"] == RANGE_SOURCE and not record["is_fallback"] and low < high:
+        likelihood = f'''
+          <div class="demand-likelihood">
+            <div class="info-heading"><h3>Next week’s demand range</h3>
+              {info("About the percentages", "These are the forecast’s target shares based on past errors at similar order volumes. The actual chances for this dish can differ. The middle share describes demand and does not tell you how many orders your plan will cover.")}
+            </div>
+            <div class="demand-bar" role="img" aria-label="About 10% below the range, 80% within the range and 10% above the range">
+              <span>≈10%</span><span>≈80%</span><span>≈10%</span>
+            </div>
+            <div class="demand-labels">
+              <span>Below {low:,} orders</span>
+              <span><strong>{low:,}–{high:,} orders</strong></span>
+              <span>Above {high:,} orders</span>
+            </div>
+            <p class="scenario-note">Approximate demand range based on historical forecast errors.</p>
+          </div>
+        '''
+    preview_note = ""
+    if preview is not None:
+        preview_note = f'<p>With your preview, the plan covers up to <strong>{preview["total_available"]:,} orders</strong>.</p>'
+    st.html(f'''
+      <section class="scenario-section">
+        <h2>Next week’s prep outlook</h2>
+        <p>About <strong>{forecast:,} orders expected</strong> · Your plan covers up to <strong>{supply:,}</strong></p>
+        {preview_note}
+        {likelihood}
+        <details class="scenario-action">
+          <summary>What if orders change?</summary>
+          <ul>
+            <li><strong>If orders pick up:</strong> check what you’d need for a second batch and start it as demand builds.</li>
+            <li><strong>If orders slow down:</strong> count the portions still safe to serve and use those first in the next batch.</li>
+          </ul>
+        </details>
+      </section>
+    ''')
+
+
+def history_replay(data, center, meal):
+    rows = data.data
+    rows = rows.loc[
+        (rows["center_id"] == center) & (rows["meal_id"] == meal)
+        & (rows["week"] <= data.last_week) & rows["num_orders"].notna(),
+        ["center_id", "meal_id", "week", "num_orders"],
+    ].sort_values("week")
+    if rows.empty:
+        return None
+
+    # Missing weeks carry no observation. Start each uninterrupted stretch afresh.
+    consecutive = rows["week"].diff().eq(1)
+    replay = rows.rename(columns={"week": "target_week", "num_orders": "actual_orders"})
+    replay["forecast_orders"] = rows["num_orders"].shift()
+    replay["window"] = (~consecutive).cumsum()
+    replay = simulate_carryover(replay.loc[consecutive], prepare_forecast_minus_leftovers)
+    return int(rows["week"].min()), data.last_week, replay.set_index("target_week")
+
+
+def show_meal_history(history, center, meal):
+    first, last, replay = history
+    st.subheader("Waste and missed orders by week")
+    st.caption(f"Kitchen {center} · Dish #{meal} · Simulation on actual order history")
+    metric = st.radio("Show", ["Waste", "Missed orders"], horizontal=True, key="history_metric")
+    values = replay["expired" if metric == "Waste" else "unmet"].to_dict()
+    peak = max(1, *values.values())
+    cells = []
+    for week in range(first, last + 1):
+        value = values.get(week)
+        if value is None:
+            cells.append('<span class="heat-missing"></span>')
+        else:
+            intensity = 0.07 + 0.9 * value / peak
+            cells.append(f'<span class="heat-value" style="--heat:{intensity:.3f}"></span>')
+    description = (
+        "Darker weeks have more simulated expired portions." if metric == "Waste"
+        else "Darker weeks have more simulated orders the kitchen could not fill."
+    )
+    ticks = [first, *range(((first + 24) // 25) * 25, last, 25), last]
+    labels = "".join(
+        f'<span style="grid-column:{week - first + 1}">W{week}</span>'
+        for week in dict.fromkeys(ticks)
+    )
+    st.html(f'''
+      <section class="chart meal-history">
+        <div class="history-scroll" role="region" aria-label="Weekly impact heatmap" tabindex="0">
+          <div class="history-plot" style="--weeks:{last - first + 1}">
+            <div class="history-axis-y">{metric}</div>
+            <div>
+              <div class="history-heatmap" role="img" aria-label="{metric}, weeks {first} to {last}. {description} Gray means unavailable.">
+                {"".join(cells)}
+              </div>
+              <div class="history-axis-x" aria-hidden="true">{labels}</div>
+            </div>
+          </div>
+        </div>
+        <p class="scenario-note">{description} Gray means unavailable.</p>
+        <p class="scenario-note">The dataset records orders. Waste and missed orders are simulated by planning from the previous week’s orders and using eligible leftovers first for one extra week.</p>
+      </section>
+    ''')
+
+
+def live_plan(mode):
+    hero = st.container()
+    context = base = None
+    selected_history = None
+    with st.container(border=True):
+        st.markdown("**Choose your dish and count what’s ready**")
+        try:
+            root = resolve_data_dir()
+            signature = tuple((name, (root / name).stat().st_size, (root / name).stat().st_mtime_ns)
+                              for name in DATA_FILES)
+            data = get_data(str(root), signature)
+            centres = sorted(int(c) for c in data.centers.center_id.unique())
+            left, middle, right = st.columns([1, 2, 2])
+            center = left.selectbox("Kitchen location", centres,
+                                    index=centres.index(13) if 13 in centres else 0, key="center",
+                                    help="Choose the kitchen you’re planning for. In this demo, each kitchen is identified by a number.")
+            menu = menu_tool(center, data)
+            if "error" in menu:
+                raise ValueError(menu["error"])
+            meals = {r["meal_id"]: r for r in menu["meals"]}
+            if not meals:
+                raise ValueError("No observed menu is available for this centre.")
+            options = list(meals)
+            meal = middle.selectbox("Dish", options, index=options.index(1198) if 1198 in options else 0,
+                format_func=lambda m: f"{meals[m]['category']} · {meals[m]['cuisine']} (#{m})", key=f"meal_{center}",
+                help="Choose one dish to plan. In this demo, dishes are listed by category, cuisine and menu number.")
+            selected_history = (history_replay(data, center, meal), center, meal)
+            identity = (str(root), signature, center, meal)
+            if st.session_state.get("loaded_identity") != identity:
+                st.session_state.pop("live_context", None)
+                st.session_state.pop("estimate", None)
+                st.session_state.pop("adjustment_choice", None)
+            stock = right.number_input("Portions already ready to use", value=None, step=1,
+                                       key=f"real_stock_{center}_{meal}", placeholder="Enter 0 if none",
+                                       help="Count only whole portions of this dish that will still be safe to serve next week. Enter 0 if you have none.")
+            if st.button("Make my prep plan", key="load_forecast", type="primary"):
+                with st.spinner("Working out next week’s prep…"):
+                    st.session_state["live_context"] = get_live_context(str(root), signature, center, meal)
+                    st.session_state["loaded_identity"] = identity
+            context = st.session_state.get("live_context")
+            plan_identity = (identity, context.key if context else None, stock)
+            if st.session_state.get("applied_identity") != plan_identity:
+                st.session_state.pop("applied_plan", None)
+            if context:
+                base = call_tool(CENTRAL, {"usable_stock": stock}, context)
+        except (OSError, ValueError, RuntimeError) as exc:
+            st.error(f"Forecast unavailable. {exc}")
+            st.session_state.pop("live_context", None)
+            st.session_state.pop("applied_plan", None)
+            identity = plan_identity = stock = None
+
+    record = context.forecast_record if context else None
+    subtitle = (f"Centre {record['center_id']} · Meal {record['meal_id']} · Week {record['target_week']}"
+                if record else "See what to use first and how much to make.")
+    hero.html(f'''
+        <div class="hero"><div><h1>Next week’s prep</h1><p>{subtitle}</p></div>
+        <div class="hero-watermark" aria-hidden="true">
+          <span class="freshwise-watermark"><img src="{image_data('freshwise-logo.png')}" alt=""></span>
+        </div></div>
+    ''')
+    plan = None
+    plan_col, adjust_col = st.columns([3, 2], gap="medium")
+    with plan_col:
+        applied = st.session_state.get("applied_plan")
+        if base and base["status"] == "success":
+            plan = applied["result"]["adjusted_plan"] if applied else base["result"]
+            show_plan(plan, context.forecast, adjusted=bool(applied))
+            if record["is_fallback"]:
+                st.caption(f"Forecast method: {record['method']} (fallback).")
+        elif base and base["status"] == "error":
+            st.error(base["answer"])
+        else:
+            st.info("Enter how many portions are ready to use." if context else "Choose a dish above and select Make my prep plan.")
+    with adjust_col:
+        with st.container(border=True):
+            response = show_adjustment(context, stock, base, plan_identity)
+    st.session_state["current_response"] = response
+    scenarios = None
+    if plan is not None:
+        preview = None
+        if response is not base and response != applied and response["status"] == "success":
+            preview = response["result"]["adjusted_plan"]
+        scenarios = (plan, record, preview)
+    with st.expander("Technical details"):
+        if record:
+            st.write(f"Forecast range: {record['range_low_display']}–{record['range_high_display']} orders.")
+            st.write(record["provenance"])
+            st.dataframe(record["recent_orders"], hide_index=True)
+        st.caption("Manager adjustments are planning inputs. The evaluation uses the frozen default policy.")
+        st.json(evidence_tool())
+    show_trace(response, "Prepare a plan using my stock and any confirmed estimate.", mode)
+    return scenarios, selected_history
+
+
+def acceptance_example(mode):
     case = st.selectbox("Acceptance scenario", list(CASES), key="case")
-    case_id = int(case[0]); user_message = CASES[case]
+    case_id = int(case[0])
     context = get_context("acceptance-fixture")
-    st.caption("Synthetic test example · Forecast 100. Example 6 uses synthetic calibration and q=5/7.")
+    st.caption("Synthetic verification example · forecast 100 orders")
     stock_key = f"stock_{case_id}"
     if stock_key not in st.session_state:
         st.session_state[stock_key] = 150 if case_id == 3 else 20
-    stock = st.number_input("How many portions do you already have ready to use?", value=None, step=1, key=stock_key)
+    stock = st.number_input("Usable portions", value=None, step=1, key=stock_key)
     arguments = {"usable_stock": stock}
-    if case_id == 6:
-        tool = "preparation_recommendation"
-    adjusted = case_id in (2, 4)
-    adjustment_prefix = str(case_id)
-else:
-    try:
-        root = resolve_data_dir()
-        signature = tuple((f.name, f.stat().st_size, f.stat().st_mtime_ns) for f in sorted(root.glob("*.csv")))
-        data = get_data(str(root), signature)
-        centers = sorted(int(c) for c in data.centers.center_id.unique())
-        center = st.selectbox("Centre", centers, index=centers.index(13) if 13 in centers else 0, key="center")
-        menu = menu_tool(center, data)
-        if "error" in menu:
-            raise ValueError(menu["error"])
-        meals = {r["meal_id"]: r for r in menu["meals"]}
-        if not meals:
-            raise ValueError("No observed menu is available for this centre.")
-        options = list(meals)
-        meal = st.selectbox("Meal", options, index=options.index(1198) if 1198 in options else 0,
-            format_func=lambda m: f"{m} · {meals[m]['category']} · {meals[m]['cuisine']}", key=f"meal_{center}")
-        with st.expander("Centre menu from the data"):
-            st.dataframe(menu["meals"], hide_index=True)
-        identity = (str(root), signature, center, meal)
-        if st.session_state.get("loaded_identity") != identity:
-            st.session_state.pop("live_context", None)
-        if st.button("Load next-week forecast", key="load_forecast"):
-            with st.spinner("Loading Silvia's forecast; first model fit may take about a minute…"):
-                st.session_state["live_context"] = get_live_context(str(root), signature, center, meal)
-                st.session_state["loaded_identity"] = identity
-        context = st.session_state.get("live_context")
-        if context is None:
-            blocked = True
-            st.warning("Load a forecast to calculate a plan. No example values are substituted.")
-        else:
-            r = context.forecast_record
-            if r["is_fallback"]:
-                st.warning(f"Forecast fallback used: {r['method']}.")
-        stock = st.number_input("How many portions do you already have ready to use?", value=None, step=1, key=f"real_stock_{center}_{meal}")
-        arguments = {"usable_stock": stock}
-        st.caption("Count only portions you have checked are still safe to use. Enter whole portions.")
-        adjusted = st.checkbox("Add your own expected orders", key="real_adjustment")
-        adjustment_prefix = f"real_{center}_{meal}"
-    except Exception as exc:
-        blocked = True; adjusted = False
-        st.error(f"Forecast unavailable: {type(exc).__name__}: {exc}")
-        st.session_state.pop("live_context", None)
-
-if adjusted:
-    tool = "manager_adjusted_central_recommendation"
-    if mode == "Acceptance examples" and case_id == 2:
-        for key,value in (("estimate_2",140.0),("weight_2",25.0)):
-            if key not in st.session_state: st.session_state[key] = value
-    estimate = st.number_input("How many orders do you expect?", value=None, step=1.0, key=f"estimate_{adjustment_prefix}")
-    weight = st.number_input("How much weight should your estimate have? (%)", value=None, step=1.0, key=f"weight_{adjustment_prefix}")
-    arguments.update(manager_estimate=estimate, opinion_weight=None if weight is None else weight/100)
-    if mode != "Acceptance examples":
-        user_message = "Apply the manager estimate and confirmed weight to this plan."
-response = None
-if not blocked:
-    try:
-        response = reject_guarantee() if mode == "Acceptance examples" and case_id == 5 else invoke(tool, arguments, context=context)
-    except Exception as exc:
-        response = {"status":"error", "tool_call":None, "result":None,
-                    "answer":f"No valid recommendation: {type(exc).__name__}: {exc}"}
+    tool = EMPIRICAL if case_id == 6 else CENTRAL
+    if case_id in (2, 4):
+        tool = ADJUSTED
+        if case_id == 2:
+            st.session_state.setdefault("estimate_2", 140.0)
+            st.session_state.setdefault("weight_2", 25.0)
+        estimate = st.number_input("Expected orders", value=None, step=1.0, key=f"estimate_{case_id}")
+        weight = st.number_input("Adjustment weight (%)", value=None, step=1.0, key=f"weight_{case_id}")
+        arguments.update(manager_estimate=estimate, opinion_weight=None if weight is None else weight / 100)
+    response = reject_guarantee() if case_id == 5 else call_tool(tool, arguments, context)
     st.session_state["current_response"] = response
-
-if response and response["status"] == "success":
-    result = response["result"]
-    is_adjusted = "original_plan" in result
-    plan = result["adjusted_plan"] if is_adjusted else result
-    policy = plan["policy"]
-    tag = (f"Week {context.forecast_record['target_week']} · Centre {center} · Meal {meal}"
-           if context.forecast_record else "Synthetic acceptance example")
-    if is_adjusted:
-        old = result["original_plan"]["new_portions_to_prepare"]
-        new = plan["new_portions_to_prepare"]
-        manager = result["manager_context"]
-        heading = f"{old:,} → {new:,} portions"
-        delta = new - old
-        change_badge = f'<div class="extra">{abs(delta):,} {"extra" if delta >= 0 else "fewer"} portions to prepare</div>' 
-        sentence = (f"Your estimate of {manager['manager_estimate']:g} orders, given "
-                    f"{manager['opinion_weight']:.0%} weight, changes new preparation from {old:,} to {new:,} portions.")
+    if response["status"] == "success":
+        result = response["result"]
+        show_plan(result.get("adjusted_plan", result), context.forecast, adjusted=tool == ADJUSTED)
     else:
-        change_badge = ""
-        heading = f"Prepare {plan['new_portions_to_prepare']:,} new portions"
-        sentence = "Use ready-to-use portions first, then prepare the rest."
-    hero.html(f'<section class="fw-plan"><div class="ticket-top"><div class="fw-tag">Prep ticket</div><div class="fw-tag">{tag}</div></div>'
-              f'<h1>{heading}</h1><p>Expected orders: about {context.forecast:,.0f} · '
-              f'Ready to use: {plan["usable_stock"]:,}</p>{change_badge}'
-              f'<div class="ticket-trays"><div class="tray"><b>{plan["usable_stock"]:,}</b><span>ready to use</span><br><span class="first-tag">Use these first</span></div>'
-              f'<div class="tray new"><b>{plan["new_portions_to_prepare"]:,}</b><span>new portions to prepare</span></div></div>'
-              f'<p class="fw-note">{sentence}</p></section>')
-    if is_adjusted:
-        st.caption("Your adjustment is a planning input; it was not part of the evaluated policy results.")
-    if tool == "preparation_recommendation":
-        st.warning("Synthetic fewer-shortages example: preparing more may reduce shortages but increase waste.")
-else:
-    hero.html('<section class="fw-plan"><div class="fw-tag">Your next preparation</div>'
-              '<h1>Let’s make a preparation plan.</h1><p>Choose a meal, load its forecast, and tell us what you already have ready to use.</p></section>')
-    if response:
-        if response["status"] == "error": st.error(response["answer"])
-        else: st.info(response["answer"])
+        st.info(response["answer"])
+    show_trace(response, CASES[case], mode)
 
-with st.expander("The leftover relay — a two-week illustration", expanded=False):
-    toy = pd.DataFrame({"center_id":[13,13],"meal_id":[1198,1198],"target_week":[1,2],
-                        "forecast_orders":[100,100],"actual_orders":[80,100]})
-    relay = simulate_carryover(toy, prepare_forecast_minus_leftovers, shelf_life_weeks=1, start_stock=0)
-    first, second = relay.iloc[0], relay.iloc[1]
-    st.caption("Synthetic illustration calculated by Silvia's simulator. These are not this meal's historical outcomes. One extra week of usability is assumed, not a food-safety recommendation.")
-    st.html(f'<div class="relay"><div class="tray"><div class="fw-tag">This week</div><b>{int(first.prepared)} prepared</b><span>{int(first.sold)} portions served</span></div>'
-            f'<div class="tray"><div class="fw-tag">Next week</div><b>{int(second.leftovers_in)} reused + {int(second.prepared)} new</b><span>{int(second.sold)} portions served</span></div></div>'
-            f'<div class="relay-note">{int(second.leftovers_in)} usable portions → carry forward → use these first</div>')
-    with st.expander("Two-week calculation trace"):
-        st.dataframe(relay, hide_index=True)
 
-with st.expander("Simulated impact — demo meals and the wider trade-off", expanded=False):
-    st.caption("Team-reported final simulation: Silvia's group update, commit 7eefc42, weeks 136–145, training cutoff 135. Full §4.5 tables/manifest have not yet been imported or independently checked here. These results are separate from the current prep ticket.")
-    st.write("Four demo meals at centre 13")
-    st.html('<div class="plate-panels">' + plates(16.6,"Baseline · no carry-over") + plates(1.5,"Default · includes terminal stock") + '</div>')
-    st.caption("Each grid has 100 illustrative plate icons; 17 and 2 are highlighted after rounding. Exact reported waste rates: 16.6% → 1.5%. Rates are portions divided by prepared portions, not measured physical plates or food weight.")
-    st.write("Missed orders, shown separately: **18.8% → 7.2%** (unmet / actual orders).")
-    st.info("Across all meals: reported waste 17.9% → 2.2%, but missed orders 16.7% → 20.6%. The default does not meet the no-worse-service floor across all meals.")
-    st.caption("Default waste: expired plus usable end-of-horizon stock. Expired-only default rates: 1.1% for demo meals, 0.8% for all meals. Simulated with zero starting stock, oldest usable portions first and one extra week of shelf life. Manager adjustments were not evaluated in this comparison.")
+def comparison_chart(title, denominator, rates, explanation):
+    rows = []
+    for label, value, colour in zip(("Baseline", "FreshWise"), rates, ("baseline", "freshwise")):
+        rows.append(f'''
+            <div class="chart-row"><strong>{label}</strong>
+              <div class="track"><span class="{colour}" style="width:{value / 25 * 100:g}%"></span></div>
+              <strong>{value:g}%</strong>
+            </div>
+        ''')
+    st.html(f'''
+        <section class="chart"><div class="info-heading"><h2>{title}</h2>
+          {info(f"About {title.lower()}", explanation)}
+          </div><p>{denominator}</p>
+          <div class="chart-rows">{''.join(rows)}</div>
+          <div class="axis"><span>0%</span><span>25%</span></div>
+        </section>
+    ''')
 
-with st.expander("Technical details", expanded=False):
-    st.write("Default policy: forecast minus usable stock, rounded up and lower bounded at zero.")
-    if context and context.forecast_record:
-        r = context.forecast_record
-        st.write(f"Expected orders: {r['forecast_orders_display']} · Model range: {r['range_low_display']}–{r['range_high_display']}.")
-        st.caption(f"Observed through week {r['history_end_week']} · Actual method: {r['method']} · Full precision is used in calculations.")
-        st.write(r["provenance"])
-        st.dataframe(r["recent_orders"], hide_index=True)
-        for assumption in r["assumptions"]: st.write("• " + assumption)
-    st.caption("One extra week of storage is a simulation assumption. Confirm expiry before entering stock. One order is treated as one portion. These tools do not predict waste or unmet orders for an individual plan.")
-    st.caption("Real fewer-shortages mode awaits matching calibration ratios; model-range endpoints are not substitutes.")
-    st.write("Development evidence supplied by Silvia")
-    st.json(evidence_tool())
-    st.caption("This bundled evidence is an older development snapshot, not the newly reported final test. Final-test tables have not yet been imported into this preview. Across all meals, the reported final default reduces simulated waste but increases unmet orders; do not claim service improved everywhere.")
 
-with st.expander("Verification prompts and exact tool trace", expanded=False):
-    st.caption("Interface/integration: Lan · Forecasts: Silvia · Decisions: Ari. These prompts and responses use explicit inputs and templates, not an AI conversation.")
-    st.chat_message("user").write(user_message)
-    if response:
-        st.chat_message("assistant").write(response["answer"])
-        st.json(response)
-        st.download_button("Download current trace", data=json.dumps(
-            {"user_message":user_message,"mode":mode,"llm_connected":False,**response},indent=2),
-            file_name="freshwise_plan.json",mime="application/json")
-st.html(f'<div class="team-signature"><span>A project by</span><img src="{image_data("sallas-logo.png")}" alt="SALLAS original team logo" style="width:130px;height:auto"></div>')
-st.caption("Planning prototype · Forecasts are estimates, not guaranteed demand. No AI conversation connected.")
+def show_savings():
+    (baseline, freshwise), (missed_before, missed_after) = IMPACT["Four demo meals"]
+    portions_per_comparison = 1000
+    reduction = (baseline - freshwise) / baseline
+    baseline_waste = round(portions_per_comparison * baseline / 100)
+    freshwise_waste = round(portions_per_comparison * freshwise / 100)
+    avoided = baseline_waste - freshwise_waste
+    fewer_missed = round(10 * (missed_before - missed_after))
+    (all_waste_before, all_waste_after), (all_missed_before, all_missed_after) = IMPACT["All meals"]
+    with st.container(border=True, key="impact_savings"):
+        comparison, calculator = st.columns([3, 2], gap="large")
+        with comparison:
+            st.html(f'''
+              <section class="savings">
+                <h2><strong>{reduction:.0%}</strong> less food waste</h2>
+                <p class="savings-scope">Final simulation · Four demo dishes</p>
+                <p>Portions counted as waste for every {portions_per_comparison:,} prepared</p>
+                <div class="savings-bars">
+                  <div><span>Using last week’s orders</span><span class="track" aria-hidden="true"><span class="baseline" style="width:100%"></span></span><strong>{baseline_waste:,}</strong></div>
+                  <div><span>With FreshWise</span><span class="track" aria-hidden="true"><span class="freshwise" style="width:{freshwise_waste / baseline_waste:.2%}"></span></span><strong>{freshwise_waste:,}</strong></div>
+                </div>
+                <div class="savings-outcomes">
+                  <p><strong>{avoided:,} fewer portions wasted</strong> per {portions_per_comparison:,} prepared</p>
+                  <p><strong>{fewer_missed:,} fewer orders missed</strong> per 1,000 received</p>
+                </div>
+              </section>
+            ''')
+        with calculator, st.container(key="ingredient_value"):
+            st.html(f'''
+              <div class="ingredient-heading">
+                <h3>Value of ingredients saved</h3>
+                <span class="freshwise-watermark" aria-hidden="true"><img src="{image_data('freshwise-logo.png')}" alt=""></span>
+              </div>
+            ''')
+            cost = st.number_input(
+                "Cost per portion (CAD)", min_value=0.0, value=None,
+                step=0.25, format="%.2f", placeholder="e.g. 5.00", key="impact_portion_cost",
+                help="Enter the average ingredient cost to make one portion of these dishes.",
+            )
+            if cost is not None:
+                st.html(f'''
+                  <div class="ingredient-total" role="status">
+                    <strong>CA${avoided * cost:,.2f}</strong>
+                    <p>Estimated ingredient value per {portions_per_comparison:,} portions prepared</p>
+                  </div>
+                ''')
+        st.html(f'''
+          <details class="scenario-action savings-all-dishes">
+            <summary>Across all dishes</summary>
+            <ul>
+              <li><strong>{round(10 * (all_waste_before - all_waste_after))} fewer portions wasted</strong> per 1,000 prepared.</li>
+              <li><strong>{round(10 * (all_missed_after - all_missed_before))} more orders missed</strong> per 1,000 received.</li>
+            </ul>
+          </details>
+        ''')
+
+
+def impact_view(scenarios, selected_history):
+    show_savings()
+    if selected_history and selected_history[0] is not None:
+        show_meal_history(*selected_history)
+    if scenarios is None:
+        st.info("Make a prep plan in Prep plan to see how many portions could be left over or how many orders you might miss.")
+    else:
+        show_plan_outlook(*scenarios)
+    with st.expander("How did FreshWise do in testing?"):
+        show_historical_impact()
+
+
+def show_historical_impact():
+    title, control = st.columns([3, 2], vertical_alignment="center")
+    title.html('<div class="impact-title"><h1>Waste &amp; service</h1><p>Final simulation · Weeks 136–145</p></div>')
+    with control:
+        population = st.radio("Meal selection", list(IMPACT), horizontal=True,
+                              key="impact_population",
+                              help="Compare the four dishes featured in the demo or see the results across all dishes in the test.")
+    waste, missed = IMPACT[population]
+    left, right = st.columns(2, gap="medium")
+    with left:
+        comparison_chart("Food waste", "Share of prepared portions", waste,
+                         "Includes portions that expired and portions still in stock at the end of the simulation. Baseline is the comparison plan using last week’s orders and no carry-over.")
+    with right:
+        comparison_chart("Missed orders", "Share of observed orders", missed,
+                         "The share of orders that the simulated kitchen could not fill because it ran out of portions.")
+    st.html('''<div class="impact-summary"><strong>Across all meals</strong>
+        <span>Waste 17.9% → 2.2%</span><span>Missed orders 16.7% → 20.6%</span></div>''')
+    st.caption("Team-reported simulation on observed orders. Assumes one extra week of shelf life. Waste includes expired portions and usable stock at the end of the test.")
+    with st.expander("How leftovers carry into next week"):
+        st.caption("Final simulation · Centre 13 · Meal 1198 · Reported by the forecasting team")
+        st.html('''<div class="relay">
+          <div><strong>Week 136</strong><p>645 prepared · 458 served</p><b>187 still usable</b></div>
+          <div class="relay-arrow" aria-hidden="true">→</div>
+          <div><strong>Week 137</strong><p>187 used first + 381 newly prepared</p><p>458 served · 110 still usable</p></div>
+        </div>''')
+
+
+st.set_page_config(page_title="FreshWise | Kitchen prep planner", page_icon="🌱", layout="wide")
+st.html((ROOT / "demo.css").read_text())
+st.html(f'''
+    <header class="brand-header">
+      <div><img class="freshwise-logo" src="{image_data('freshwise-logo.png')}" alt="FreshWise">
+      <span>Kitchen prep planner</span></div>
+      <img class="sallas-logo" src="{image_data('sallas-logo.png')}" alt="SALLAS">
+    </header>
+''')
+prep, impact = st.tabs(["Prep plan", "Impact"])
+scenarios = selected_history = None
+with prep:
+    with st.expander("Verification settings"):
+        mode = st.radio("Data mode", ["Acceptance examples", "Real next-week forecast"], index=1,
+                        horizontal=True, key="data_mode")
+    st.session_state["current_response"] = None
+    if mode == "Acceptance examples":
+        acceptance_example(mode)
+    else:
+        scenarios, selected_history = live_plan(mode)
+with impact:
+    impact_view(scenarios, selected_history)
