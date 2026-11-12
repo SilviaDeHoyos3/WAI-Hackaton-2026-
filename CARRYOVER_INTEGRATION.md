@@ -43,3 +43,25 @@ do not search for a winning quantile on the evaluation windows.
 Historical orders are observed data.
 Inventory, shelf life, waste and service outcomes are simulated.
 The adapter alone does not demonstrate waste reduction.
+
+## Agreed quantile variants
+
+The comparison reports two fixed variants: 0.55 and 5/7.
+Neither quantile is selected or tuned on evaluation outcomes.
+
+Calibration ratios are stored once, keyed by:
+forecast method, window and forecast-size group.
+
+Size groups: forecast <69; 69 <= forecast <230; forecast >=230.
+Calibration A: weeks 96–105; evaluation A: 106–115.
+Calibration B: weeks 116–125; evaluation B: 126–135.
+
+Each method uses its own calibration errors.
+Calibration weeks must strictly precede evaluation weeks.
+
+Selection uses waste_rate_with_terminal, subject to the agreed
+service floor in both development windows.
+Report expired waste and usable terminal stock separately,
+alongside both waste-rate and penalty measures.
+
+These are development comparisons, not untouched final-test results.

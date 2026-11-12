@@ -1,0 +1,236 @@
+{
+  "executed_at_utc": "2026-11-10T06:21:57.659343+00:00",
+  "scope": "Real data and tools in Streamlit; no LLM; no evaluation run",
+  "forecast": {
+    "center_id": 13,
+    "meal_id": 1198,
+    "target_week": 146,
+    "history_end_week": 145,
+    "forecast_orders": 453.15969951433823,
+    "range_low": 299.08540167946325,
+    "range_high": 666.5979179855916,
+    "forecast_orders_display": 453.2,
+    "range_low_display": 299.1,
+    "range_high_display": 666.6,
+    "method_requested": "hgb",
+    "method": "hgb",
+    "is_fallback": false,
+    "range_source": "empirical_p10_p90_by_size_weeks116_125",
+    "recent_orders": [
+      {
+        "week": 142,
+        "orders": 703
+      },
+      {
+        "week": 143,
+        "orders": 298
+      },
+      {
+        "week": 144,
+        "orders": 419
+      },
+      {
+        "week": 145,
+        "orders": 446
+      }
+    ],
+    "provenance": "hgb model refit on all observed weeks <= history_end_week; target-week prices and promotions from the planning row; range from hgb's own errors (weeks 116-125).",
+    "assumptions": [
+      "Forecasts are observed weekly orders, not guaranteed demand.",
+      "The range is model uncertainty only (about 80% of past outcomes fell inside it); manager context is applied separately by the decision tools.",
+      "hgb assumes next week's prices and promotions are known when planning.",
+      "Meal names and recipes are not in the data; meals are identified by ID, category and cuisine."
+    ]
+  },
+  "central_response": {
+    "status": "success",
+    "missing": [],
+    "context_key": "center-13/meal-1198/week-146",
+    "context_source": "hgb model refit on all observed weeks <= history_end_week; target-week prices and promotions from the planning row; range from hgb's own errors (weeks 116-125).",
+    "forecast_record": {
+      "center_id": 13,
+      "meal_id": 1198,
+      "target_week": 146,
+      "history_end_week": 145,
+      "forecast_orders": 453.15969951433823,
+      "range_low": 299.08540167946325,
+      "range_high": 666.5979179855916,
+      "forecast_orders_display": 453.2,
+      "range_low_display": 299.1,
+      "range_high_display": 666.6,
+      "method_requested": "hgb",
+      "method": "hgb",
+      "is_fallback": false,
+      "range_source": "empirical_p10_p90_by_size_weeks116_125",
+      "recent_orders": [
+        {
+          "week": 142,
+          "orders": 703
+        },
+        {
+          "week": 143,
+          "orders": 298
+        },
+        {
+          "week": 144,
+          "orders": 419
+        },
+        {
+          "week": 145,
+          "orders": 446
+        }
+      ],
+      "provenance": "hgb model refit on all observed weeks <= history_end_week; target-week prices and promotions from the planning row; range from hgb's own errors (weeks 116-125).",
+      "assumptions": [
+        "Forecasts are observed weekly orders, not guaranteed demand.",
+        "The range is model uncertainty only (about 80% of past outcomes fell inside it); manager context is applied separately by the decision tools.",
+        "hgb assumes next week's prices and promotions are known when planning.",
+        "Meal names and recipes are not in the data; meals are identified by ID, category and cuisine."
+      ]
+    },
+    "tool_call": {
+      "name": "central_preparation_recommendation",
+      "manager_arguments": {
+        "usable_stock": 20
+      },
+      "application_arguments": {
+        "forecast": 453.15969951433823
+      }
+    },
+    "result": {
+      "forecast_orders": 453.15969951433823,
+      "usable_stock": 20,
+      "new_portions_to_prepare": 434,
+      "total_available": 454,
+      "target_supply": 453.15969951433823,
+      "policy": "central_forecast_minus_usable_stock",
+      "manager_adjustment_applied": false,
+      "assumptions": [
+        "One order is treated as one portion.",
+        "Usable stock has already been checked for expiry.",
+        "The forecast is supplied by the application."
+      ]
+    },
+    "answer": "Prepare 434 new portions. Usable stock: 20; total available: 454 portions. Policy target: 453.16, not guaranteed demand."
+  },
+  "manager_response": {
+    "status": "success",
+    "missing": [],
+    "context_key": "center-13/meal-1198/week-146",
+    "context_source": "hgb model refit on all observed weeks <= history_end_week; target-week prices and promotions from the planning row; range from hgb's own errors (weeks 116-125).",
+    "forecast_record": {
+      "center_id": 13,
+      "meal_id": 1198,
+      "target_week": 146,
+      "history_end_week": 145,
+      "forecast_orders": 453.15969951433823,
+      "range_low": 299.08540167946325,
+      "range_high": 666.5979179855916,
+      "forecast_orders_display": 453.2,
+      "range_low_display": 299.1,
+      "range_high_display": 666.6,
+      "method_requested": "hgb",
+      "method": "hgb",
+      "is_fallback": false,
+      "range_source": "empirical_p10_p90_by_size_weeks116_125",
+      "recent_orders": [
+        {
+          "week": 142,
+          "orders": 703
+        },
+        {
+          "week": 143,
+          "orders": 298
+        },
+        {
+          "week": 144,
+          "orders": 419
+        },
+        {
+          "week": 145,
+          "orders": 446
+        }
+      ],
+      "provenance": "hgb model refit on all observed weeks <= history_end_week; target-week prices and promotions from the planning row; range from hgb's own errors (weeks 116-125).",
+      "assumptions": [
+        "Forecasts are observed weekly orders, not guaranteed demand.",
+        "The range is model uncertainty only (about 80% of past outcomes fell inside it); manager context is applied separately by the decision tools.",
+        "hgb assumes next week's prices and promotions are known when planning.",
+        "Meal names and recipes are not in the data; meals are identified by ID, category and cuisine."
+      ]
+    },
+    "tool_call": {
+      "name": "manager_adjusted_central_recommendation",
+      "manager_arguments": {
+        "usable_stock": 20,
+        "manager_estimate": 600.0,
+        "opinion_weight": 0.25
+      },
+      "application_arguments": {
+        "forecast": 453.15969951433823
+      }
+    },
+    "result": {
+      "original_plan": {
+        "forecast_orders": 453.15969951433823,
+        "usable_stock": 20,
+        "new_portions_to_prepare": 434,
+        "total_available": 454,
+        "target_supply": 453.15969951433823,
+        "policy": "central_forecast_minus_usable_stock",
+        "manager_adjustment_applied": false,
+        "assumptions": [
+          "One order is treated as one portion.",
+          "Usable stock has already been checked for expiry.",
+          "The forecast is supplied by the application."
+        ]
+      },
+      "adjusted_plan": {
+        "forecast_orders": 453.15969951433823,
+        "usable_stock": 20,
+        "new_portions_to_prepare": 470,
+        "total_available": 490,
+        "target_supply": 489.8697746357537,
+        "policy": "central_forecast_minus_usable_stock",
+        "manager_adjustment_applied": true,
+        "assumptions": [
+          "One order is treated as one portion.",
+          "Usable stock has already been checked for expiry.",
+          "The forecast is supplied by the application."
+        ]
+      },
+      "manager_context": {
+        "anchor": "central_forecast",
+        "anchor_value": 453.15969951433823,
+        "manager_estimate": 600.0,
+        "opinion_weight": 0.25,
+        "demand_shift": 36.71007512141546
+      },
+      "adjustment_method": "Blend the original forecast with the manager estimate using the explicit opinion weight, then subtract usable stock."
+    },
+    "answer": "Original forecast: 453.16 orders. Manager estimate: 600; weight: 25%. Target change: +36.7101 orders. Original preparation: 434 portions; adjusted preparation: 470 portions. Manager adjustments were not part of the evaluated policy results."
+  },
+  "missing_stock_and_adjustment_inputs": "PASS",
+  "meal_change_invalidates_plan": "PASS",
+  "runtime": {
+    "python": "3.12.16",
+    "packages": {
+      "numpy": "2.5.4",
+      "pandas": "3.1.0",
+      "scikit-learn": "1.9.1",
+      "scipy": "1.18.1",
+      "streamlit": "1.66.1"
+    }
+  },
+  "data_sha256": {
+    "train.csv": "a2ed2d7c6905d63a9361d8dd35bc06c8a597831f7185644e0f33ad7bfe20cc81",
+    "test.csv": "71a929bf2f043bf98748acb9d274258fe4c68c19592be1e26aca7dc1f1c8eda5",
+    "meal_info.csv": "9d8045af391c492f531c928d7f3d58581c80d0594776d1f4e53c8b29bbff8f75",
+    "fulfilment_center_info.csv": "c874f74fa392b2c4dd24a167f32a5bee68a444b8bf151acf295cd5d66aa0517f"
+  },
+  "forecast_source_sha256": {
+    "agent_data_tools.py": "caa5ac475c78967f351c84041dbbf494141ec1dfdffcacdc63209e5789db19f9",
+    "next_week.py": "8c6f2571d851ef0c7f0c0a1cef6fc8da6503f2c4e14102ec3e5b676a6bf05dbb",
+    "supervised.py": "080d8045694ac61798b2fe5cc864a87e4d614992f22aac4b3a7b7e5a73146ade"
+  }
+}

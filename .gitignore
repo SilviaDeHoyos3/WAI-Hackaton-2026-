@@ -11,3 +11,8 @@ outputs/*
 !outputs/.gitkeep
 .DS_Store
 *.csv
+
+# Isolated reproduction runtimes (local only)
+.venv-repro/
+.python-repro/
+.uv-cache/
