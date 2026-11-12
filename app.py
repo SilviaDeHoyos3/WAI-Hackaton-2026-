@@ -2,8 +2,10 @@
 import base64
 from html import escape
 import json
+import os
 from pathlib import Path
 import sys
+from urllib.parse import urlsplit
 
 import streamlit as st
 from threadpoolctl import threadpool_limits
@@ -13,6 +15,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from freshwise.agent_data_tools import evidence_tool, menu_tool
 from freshwise.carryover import prepare_forecast_minus_leftovers, simulate_carryover
+from freshwise.conversation_agent import GeminiClient, PreparationAgent
+from freshwise.local_credentials import normalize_gemini_key, read_gemini_key, save_gemini_key
 from freshwise.next_week import RANGE_SOURCE
 from freshwise.application_tools import (
     DATA_FILES,
@@ -322,7 +326,7 @@ def live_plan(mode):
     hero.html(f'''
         <div class="hero"><div><h1>Next week’s prep</h1><p>{subtitle}</p></div>
         <div class="hero-watermark" aria-hidden="true">
-          <span class="freshwise-watermark"><img src="{image_data('freshwise-logo.png')}" alt=""></span>
+          <span class="freshwise-watermark"><img src="{image_data('freshwise-brand-reference.png')}" alt=""></span>
         </div></div>
     ''')
     plan = None
@@ -356,7 +360,98 @@ def live_plan(mode):
         st.caption("Manager adjustments are planning inputs. The evaluation uses the frozen default policy.")
         st.json(evidence_tool())
     show_trace(response, "Prepare a plan using my stock and any confirmed estimate.", mode)
-    return scenarios, selected_history
+    return scenarios, selected_history, context, identity
+
+
+def show_conversation(context, identity):
+    if st.session_state.get("conversation_selection") != identity:
+        st.session_state.pop("conversation_agent", None)
+        st.session_state.pop("conversation_messages", None)
+        st.session_state["conversation_selection"] = identity
+
+    with st.container(key="freshwise_chat_launcher"):
+        chat = st.popover("Ask FreshWise", key="freshwise_chat", on_change="rerun")
+    if not chat.open:
+        return
+
+    with chat, st.container(key="freshwise_chat_body"):
+        st.markdown("### Ask FreshWise")
+        if context is None:
+            st.caption("Select a dish and load its forecast with Make my prep plan to start.")
+            return
+
+        local_keychain = (
+            sys.platform == "darwin"
+            and urlsplit(st.context.url or "").hostname in {"localhost", "127.0.0.1", "::1"}
+        )
+        key = os.environ.get("GEMINI_API_KEY")
+        if not key and local_keychain:
+            if "saved_gemini_key" not in st.session_state:
+                st.session_state["saved_gemini_key"] = read_gemini_key()
+            key = st.session_state["saved_gemini_key"]
+        if not key:
+            key = st.text_input("Gemini API key", type="password", key="conversation_key",
+                                help="Paste the key from Google AI Studio.")
+            if key and local_keychain and st.button("Save to Mac Keychain", key="save_conversation_key"):
+                try:
+                    st.session_state["saved_gemini_key"] = save_gemini_key(key)
+                except (OSError, ValueError) as exc:
+                    st.error(str(exc))
+                else:
+                    st.rerun()
+        if not key:
+            st.caption("Connect Gemini to try the conversation. You can still use the prep planner above.")
+            return
+
+        try:
+            key = normalize_gemini_key(key)
+            client = GeminiClient(key)
+        except ValueError as exc:
+            st.error(str(exc))
+            return
+
+        agent = st.session_state.get("conversation_agent")
+        if agent is None or agent.client.key != key or agent.client.model != client.model:
+            agent = PreparationAgent(context, client)
+            st.session_state["conversation_agent"] = agent
+            st.session_state["conversation_messages"] = []
+        messages = st.session_state["conversation_messages"]
+        st.caption("Ask how much to prepare or tell FreshWise about a change in demand.")
+        if agent.active_plan is not None:
+            st.success(f"Confirmed chat plan · {agent.active_plan['new_portions_to_prepare']:,} new portions")
+        if messages:
+            with st.container(height=200, border=False):
+                bubbles = "".join(
+                    f'<div class="chat-bubble-row {role}">'
+                    f'{"" if role == "user" else "<span class=chat-chef aria-hidden=true>👩‍🍳</span>"}'
+                    f'<div class="chat-bubble" aria-label="{role}">{escape(message)}</div></div>'
+                    for role, message in messages
+                )
+                st.html(f'<div class="chat-bubbles">{bubbles}</div>')
+
+        prompt = st.chat_input(agent.say("Message FreshWise", "Scrivi a FreshWise"), key="prep_chat")
+        if prompt:
+            with st.spinner("Checking the prep plan…"):
+                reply = agent.send(prompt)
+            messages.extend([("user", prompt), ("assistant", reply["answer"])])
+            st.rerun()
+
+        if agent.pending_plan is not None:
+            st.info(f"Chat preview · {agent.pending_plan['new_portions_to_prepare']:,} new portions")
+            if st.button(agent.say("Confirm plan", "Conferma il piano"), key="confirm_chat_plan", type="primary"):
+                messages.append(("assistant", agent.confirm()["answer"]))
+                st.rerun()
+        elif agent.stock is not None and agent.estimate is not None:
+            for column, label, italian in zip(st.columns(3), ADJUSTMENTS, ("Piccola modifica", "A metà", "Usa la mia stima")):
+                choice = agent.say(label, italian)
+                if column.button(choice, key=f"chat_{label}"):
+                    with st.spinner("Checking the adjustment…"):
+                        reply = agent.choose_weight(label)
+                    messages.extend([("user", choice), ("assistant", reply["answer"])])
+                    st.rerun()
+        if agent.trace:
+            with st.expander("Chat tool calls"):
+                st.json(agent.trace)
 
 
 def acceptance_example(mode):
@@ -438,7 +533,7 @@ def show_savings():
             st.html(f'''
               <div class="ingredient-heading">
                 <h3>Value of ingredients saved</h3>
-                <span class="freshwise-watermark" aria-hidden="true"><img src="{image_data('freshwise-logo.png')}" alt=""></span>
+                <span class="freshwise-watermark" aria-hidden="true"><img src="{image_data('freshwise-brand-reference.png')}" alt=""></span>
               </div>
             ''')
             cost = st.number_input(
@@ -507,13 +602,13 @@ st.set_page_config(page_title="FreshWise | Kitchen prep planner", page_icon="�
 st.html((ROOT / "demo.css").read_text())
 st.html(f'''
     <header class="brand-header">
-      <div><img class="freshwise-logo" src="{image_data('freshwise-logo.png')}" alt="FreshWise">
+      <div><span class="freshwise-logo"><img src="{image_data('freshwise-brand-reference.png')}" alt="FreshWise"></span>
       <span>Kitchen prep planner</span></div>
       <img class="sallas-logo" src="{image_data('sallas-logo.png')}" alt="SALLAS">
     </header>
 ''')
 prep, impact = st.tabs(["Prep plan", "Impact"])
-scenarios = selected_history = None
+scenarios = selected_history = chat_context = chat_identity = None
 with prep:
     with st.expander("Verification settings"):
         mode = st.radio("Data mode", ["Acceptance examples", "Real next-week forecast"], index=1,
@@ -522,6 +617,7 @@ with prep:
     if mode == "Acceptance examples":
         acceptance_example(mode)
     else:
-        scenarios, selected_history = live_plan(mode)
+        scenarios, selected_history, chat_context, chat_identity = live_plan(mode)
 with impact:
     impact_view(scenarios, selected_history)
+show_conversation(chat_context, chat_identity)
