@@ -1,3 +1,23 @@
+## AI conversation demo by Lan
+
+Run `python -m streamlit run agent_lan_demo.py --server.port 8504` after following
+[AGENT_START_HERE.md](AGENT_START_HERE.md). This separate Gemini-powered conversation
+prototype reuses the existing forecasting and decision tools, previews manager
+adjustments and requires confirmation before updating a demo plan. The manual
+`app.py` remains available. Provider key: `GEMINI_API_KEY` or the local password
+field; model: `GEMINI_MODEL` (default `gemini-3.5-flash-lite`). No key is included.
+
+Lan: conversation interface and AI integration. Silvia: forecasting model and tools.
+Ari: preparation policy and decision tools. See
+[the handoff](docs/LAN_AI_AGENT_HANDOFF.md) and
+[presentation scope/Q&A](docs/AI_PRESENTATION_GUIDE.md).
+
+Verification: 127 local unit tests and the current mocked-provider real-data UI
+flow pass. The recorded real Gemini conversation passed all seven checks on Lan's
+machine before the later event-first guard and visual refinements; its source
+hashes are preserved in `docs/AGENT_LIVE_ACCEPTANCE.json`. Rehearse the current
+revision and teammate-machine setup before presentation. No final evaluation rerun.
+
 ## Kitchen-pass update and aligned runtime
 
 The prep ticket shows existing ready-to-use stock alongside new preparation, with
